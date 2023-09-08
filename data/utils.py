@@ -43,7 +43,7 @@ def get_tokenizer(tokenizer):
         try:
             import spacy
 
-            spacy_en = spacy.load("en")
+            spacy_en = spacy.load("en_core_web_sm")
             return lambda s: [tok.text for tok in spacy_en.tokenizer(s)]
         except ImportError:
             print(

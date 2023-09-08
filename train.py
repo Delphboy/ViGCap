@@ -8,6 +8,7 @@ from shutil import copyfile
 
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.nn import NLLLoss
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
@@ -65,7 +66,7 @@ def evaluate_metrics(model, dataloader, text_field):
         for it, (images, caps_gt) in enumerate(iter(dataloader)):
             images = images.to(device)
             with torch.no_grad():
-                out, _ = model.beam_search(
+                out, _ = model.module.beam_search(
                     images, 20, text_field.vocab.stoi["<eos>"], 5, out_size=1
                 )
             caps_gen = text_field.decode(out, join_words=False)
@@ -241,6 +242,7 @@ if __name__ == "__main__":
         len(text_field.vocab), 54, 3, text_field.vocab.stoi["<pad>"]
     )
     model = Transformer(text_field.vocab.stoi["<bos>"], encoder, decoder).to(device)
+    model = nn.DataParallel(model)
 
     dict_dataset_train = train_dataset.image_dictionary(
         {"image": image_field, "text": RawField()}
@@ -257,7 +259,7 @@ if __name__ == "__main__":
     def lambda_lr(s):
         warm_up = args.warmup
         s += 1
-        return (model.d_model**-0.5) * min(s**-0.5, s * warm_up**-1.5)
+        return (model.module.d_model**-0.5) * min(s**-0.5, s * warm_up**-1.5)
 
     # Initial conditions
     optim = Adam(model.parameters(), lr=1, betas=(0.9, 0.98))
