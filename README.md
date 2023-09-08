@@ -17,7 +17,7 @@ python3 -m pip install mosestokenizer
 python3 -m pip install revtok
 python3 -m pip install h5py
 python3 -m pip install timm
-pip install tensorboard
+python3 -m pip install tensorboard
 
 python3 -m pip uninstall urllib3
 python3 -m pip install urllib3==1.26.6
