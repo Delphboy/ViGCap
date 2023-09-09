@@ -9,7 +9,6 @@ from shutil import copyfile
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn import NLLLoss
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.tensorboard import SummaryWriter
@@ -87,7 +86,7 @@ def evaluate_metrics(model, dataloader, text_field):
 def train_xe(model, dataloader, optim, text_field):
     # Training with cross-entropy
     model.train()
-    scheduler.step()
+    # scheduler.step() # TODO: check if this is needed
     running_loss = 0.0
     with tqdm(desc="Epoch %d - train" % e, unit="it", total=len(dataloader)) as pbar:
         for it, (detections, captions) in enumerate(dataloader):
@@ -264,7 +263,8 @@ if __name__ == "__main__":
     # Initial conditions
     optim = Adam(model.parameters(), lr=1, betas=(0.9, 0.98))
     scheduler = LambdaLR(optim, lambda_lr)
-    loss_fn = NLLLoss(ignore_index=text_field.vocab.stoi["<pad>"])
+    # loss_fn = nn.NLLLoss(ignore_index=text_field.vocab.stoi["<pad>"])
+    loss_fn = nn.CrossEntropyLoss(ignore_index=text_field.vocab.stoi["<pad>"])
     use_rl = False
     best_cider = 0.0
     patience = 0
@@ -296,6 +296,9 @@ if __name__ == "__main__":
 
     print("Training starts")
     for e in range(start_epoch, start_epoch + 100):
+        # TODO: Move the dataloaders outside of the training loop
+        # TODO: Do we need to hold all these dataloaders in memory?
+        # What's the cost of creating them every time vs. holding them in memory?
         dataloader_train = DataLoader(
             train_dataset,
             batch_size=args.batch_size,
@@ -347,6 +350,7 @@ if __name__ == "__main__":
         writer.add_scalar("data/val_meteor", scores["METEOR"], e)
         writer.add_scalar("data/val_rouge", scores["ROUGE"], e)
 
+        # TODO: Add a flag to disable test or get it to run every N epochs
         # Test scores
         scores = evaluate_metrics(model, dict_dataloader_test, text_field)
         print("Test scores", scores)
