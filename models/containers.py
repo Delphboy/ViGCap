@@ -2,7 +2,7 @@ from contextlib import contextmanager
 
 from torch import nn
 
-from utils.typing import *
+from utils.typing import TensorOrNone
 
 
 class Module(nn.Module):

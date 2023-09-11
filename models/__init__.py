@@ -1,2 +1,2 @@
 from .captioning_model import CaptioningModel
-from .transformer import Transformer
+from .transformer import MeshedMemoryTransformer

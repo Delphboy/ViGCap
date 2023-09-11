@@ -68,8 +68,9 @@ class ScaledDotProductAttention(nn.Module):
         if attention_weights is not None:
             att = att * attention_weights
         if attention_mask is not None:
-            # FIXME: masked_fill_ received a mask with dtype torch.uint8, this behavior is now deprecated,please use a mask with dtype torch.bool instead
-            att = att.masked_fill(attention_mask, -np.inf)
+            # FIXME: masked_fill_ received a mask with dtype torch.uint8, this behavior
+            # is now deprecated,please use a mask with dtype torch.bool instead
+            att = att.masked_fill(attention_mask.type(torch.bool), -np.inf)
         att = torch.softmax(att, -1)
         out = (
             torch.matmul(att, v)

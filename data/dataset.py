@@ -173,12 +173,12 @@ class PairedDataset(Dataset):
         dataset = Dataset(examples, {"image": self.image_field})
         return dataset
 
-    def text_set(self):
-        text_list = [e.text for e in self.examples]
-        text_list = unique(text_list)
-        examples = [Example.fromdict({"text": t}) for t in text_list]
-        dataset = Dataset(examples, {"text": self.text_field})
-        return dataset
+    # def text_set(self):
+    #     text_list = [e.text for e in self.examples]
+    #     text_list = unique(text_list)
+    #     examples = [Example.fromdict({"text": t}) for t in text_list]
+    #     dataset = Dataset(examples, {"text": self.text_field})
+    #     return dataset
 
     def image_dictionary(self, fields=None):
         if not fields:
@@ -186,11 +186,11 @@ class PairedDataset(Dataset):
         dataset = DictionaryDataset(self.examples, fields, key_fields="image")
         return dataset
 
-    def text_dictionary(self, fields=None):
-        if not fields:
-            fields = self.fields
-        dataset = DictionaryDataset(self.examples, fields, key_fields="text")
-        return dataset
+    # def text_dictionary(self, fields=None):
+    #     if not fields:
+    #         fields = self.fields
+    #     dataset = DictionaryDataset(self.examples, fields, key_fields="text")
+    #     return dataset
 
     @property
     def splits(self):

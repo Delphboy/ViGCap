@@ -1,8 +1,7 @@
 import torch
-from torch import distributions
 
 import utils
-from models.beam_search import *
+from models.beam_search import BeamSearch
 from models.containers import Module
 
 
@@ -53,23 +52,23 @@ class CaptioningModel(Module):
 
         return torch.cat(outputs, 1), torch.cat(log_probs, 1)
 
-    def sample_rl(
-        self, visual: utils.TensorOrSequence, max_len: int, **kwargs
-    ) -> utils.Tuple[torch.Tensor, torch.Tensor]:
-        b_s = utils.get_batch_size(visual)
-        outputs = []
-        log_probs = []
+    # def sample_rl(
+    #     self, visual: utils.TensorOrSequence, max_len: int, **kwargs
+    # ) -> utils.Tuple[torch.Tensor, torch.Tensor]:
+    #     b_s = utils.get_batch_size(visual)
+    #     outputs = []
+    #     log_probs = []
 
-        with self.statefulness(b_s):
-            out = None
-            for t in range(max_len):
-                out = self.step(t, out, visual, None, mode="feedback", **kwargs)
-                distr = distributions.Categorical(logits=out[:, 0])
-                out = distr.sample().unsqueeze(1)
-                outputs.append(out)
-                log_probs.append(distr.log_prob(out).unsqueeze(1))
+    #     with self.statefulness(b_s):
+    #         out = None
+    #         for t in range(max_len):
+    #             out = self.step(t, out, visual, None, mode="feedback", **kwargs)
+    #             distr = distributions.Categorical(logits=out[:, 0])
+    #             out = distr.sample().unsqueeze(1)
+    #             outputs.append(out)
+    #             log_probs.append(distr.log_prob(out).unsqueeze(1))
 
-        return torch.cat(outputs, 1), torch.cat(log_probs, 1)
+    #     return torch.cat(outputs, 1), torch.cat(log_probs, 1)
 
     def beam_search(
         self,

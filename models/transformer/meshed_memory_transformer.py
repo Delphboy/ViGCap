@@ -1,16 +1,12 @@
-import copy
-
 import torch
 from torch import nn
-
-from models.containers import ModuleList
 
 from ..captioning_model import CaptioningModel
 
 
-class Transformer(CaptioningModel):
+class MeshedMemoryTransformer(CaptioningModel):
     def __init__(self, bos_idx, encoder, decoder):
-        super(Transformer, self).__init__()
+        super(MeshedMemoryTransformer, self).__init__()
         self.bos_idx = bos_idx
         self.encoder = encoder
         self.decoder = decoder
@@ -56,19 +52,19 @@ class Transformer(CaptioningModel):
         return self.decoder(it, self.enc_output, self.mask_enc)
 
 
-class TransformerEnsemble(CaptioningModel):
-    def __init__(self, model: Transformer, weight_files):
-        super(TransformerEnsemble, self).__init__()
-        self.n = len(weight_files)
-        self.models = ModuleList([copy.deepcopy(model) for _ in range(self.n)])
-        for i in range(self.n):
-            state_dict_i = torch.load(weight_files[i])["state_dict"]
-            self.models[i].load_state_dict(state_dict_i)
+# class TransformerEnsemble(CaptioningModel):
+#     def __init__(self, model: Transformer, weight_files):
+#         super(TransformerEnsemble, self).__init__()
+#         self.n = len(weight_files)
+#         self.models = ModuleList([copy.deepcopy(model) for _ in range(self.n)])
+#         for i in range(self.n):
+#             state_dict_i = torch.load(weight_files[i])["state_dict"]
+#             self.models[i].load_state_dict(state_dict_i)
 
-    def step(self, t, prev_output, visual, seq, mode="teacher_forcing", **kwargs):
-        out_ensemble = []
-        for i in range(self.n):
-            out_i = self.models[i].step(t, prev_output, visual, seq, mode, **kwargs)
-            out_ensemble.append(out_i.unsqueeze(0))
+#     def step(self, t, prev_output, visual, seq, mode="teacher_forcing", **kwargs):
+#         out_ensemble = []
+#         for i in range(self.n):
+#             out_i = self.models[i].step(t, prev_output, visual, seq, mode, **kwargs)
+#             out_ensemble.append(out_i.unsqueeze(0))
 
-        return torch.mean(torch.cat(out_ensemble, 0), dim=0)
+#         return torch.mean(torch.cat(out_ensemble, 0), dim=0)
