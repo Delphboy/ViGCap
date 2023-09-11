@@ -371,21 +371,20 @@ if __name__ == "__main__":
 
     print("Training starts")
     for epoch in range(start_epoch, args.max_epochs):
-        # if not use_rl:
-        #     train_loss = train_xe(model, dataloader_train, optim, text_field)
-        #     writer.add_scalar("data/train_loss", train_loss, epoch)
-        # else:
-        #     train_loss, reward, reward_baseline = train_scst(
-        #         model, dict_dataloader_train, optim, cider_train, text_field
-        #     )
-        #     writer.add_scalar("data/train_loss", train_loss, epoch)
-        #     writer.add_scalar("data/reward", reward, epoch)
-        #     writer.add_scalar("data/reward_baseline", reward_baseline, epoch)
+        if not use_rl:
+            train_loss = train_xe(model, dataloader_train, optim, text_field)
+            writer.add_scalar("data/train_loss", train_loss, epoch)
+        else:
+            train_loss, reward, reward_baseline = train_scst(
+                model, dict_dataloader_train, optim, cider_train, text_field
+            )
+            writer.add_scalar("data/train_loss", train_loss, epoch)
+            writer.add_scalar("data/reward", reward, epoch)
+            writer.add_scalar("data/reward_baseline", reward_baseline, epoch)
 
         # # Validation loss
-        val_loss = 0
-        # val_loss = evaluate_loss(model, dataloader_val, loss_fn, text_field)
-        # writer.add_scalar("data/val_loss", val_loss, epoch)
+        val_loss = evaluate_loss(model, dataloader_val, loss_fn, text_field)
+        writer.add_scalar("data/val_loss", val_loss, epoch)
 
         # Validation scores
         scores = evaluate_metrics(model, dict_dataloader_val, text_field)
