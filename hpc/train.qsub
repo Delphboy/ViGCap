@@ -1,0 +1,31 @@
+#!/bin/bash
+#$ -l h_rt=240:0:0
+#$ -l h_vmem=11G
+#$ -pe smp 32
+#$ -l gpu=4
+#$ -l gpu_type=ampere
+#$ -wd /data/home/eey362/ViGCap
+#$ -j y
+#$ -m ea
+#$ -o logs/
+#$ -l cluster=andrena
+
+
+# Load modules
+module load python/3.8.5
+module load cuda/11.6.2
+module load cudnn/8.4.1-cuda11.6
+module load java/1.8.0_382-openjdk
+
+# Activate virtual environment
+source .venv/bin/activate
+
+# Run!
+python3 train.py --exp_name "ViGCap" \
+                --batch_size 128 \
+                --m 40 \
+                --head 8 \
+                --warmup 1000 \
+                --features_path "/data/scratch/eey362/meshed-data/coco_detections.hdf5" \
+                --annotation_folder "/data/home/eey362/ViGCap/data/annotations" \
+                --workers 8

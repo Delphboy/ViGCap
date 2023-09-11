@@ -7,7 +7,15 @@ TODO: Architecture diagram here
 ## Setup
 ### Dependencies
 
-- PyTorch
+```bash
+# Andrena
+pip install torch==1.12.1+cu116 torchvision==0.13.1+cu116 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu116
+
+# EECS
+python3 -m pip install torch==1.12.1+cu102 torchvision==0.13.1+cu102 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu102
+```
+
+
 ```bash
 python3 -m pip install pycocotools
 python3 -m pip install spacy
