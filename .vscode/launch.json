@@ -14,10 +14,9 @@
                 "--batch_size", "128",
                 "--m", "40",
                 "--head", "4",
-                "--warmup", "100",
                 "--features_path", "/import/gameai-01/eey362/datasets/coco/coco_detections.hdf5",
                 "--annotation_folder", "/homes/hps01/ViGCap/data/annotations",
-                "--workers", "8",
+                "--workers", "32",
             ],
             "console": "integratedTerminal",
             "justMyCode": true
@@ -28,10 +27,12 @@
             "request": "launch",
             "program": "test.py",
             "args": [
+                "--exp_name",
+                "debug",
                 "--features_path",
-                "TODO TODO TODO TODO",
+                "/import/gameai-01/eey362/datasets/coco/coco_detections.hdf5",
                 "--annotation_folder",
-                "TODO TODO TODO TODO",
+                "/homes/hps01/ViGCap/data/annotations",
             ],
             "console": "integratedTerminal",
             "justMyCode": true

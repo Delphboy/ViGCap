@@ -11,8 +11,8 @@ from data import COCO, DataLoader, ImageDetectionsField, RawField, TextField
 from models.transformer import (
     MemoryAugmentedEncoder,
     MeshedDecoder,
+    MeshedMemoryTransformer,
     ScaledDotProductAttentionMemory,
-    Transformer,
 )
 
 random.seed(1234)
@@ -53,6 +53,7 @@ if __name__ == "__main__":
     device = torch.device("cuda")
 
     parser = argparse.ArgumentParser(description="Meshed-Memory Transformer")
+    parser.add_argument("--exp_name", type=str, default="ViGCap")
     parser.add_argument("--batch_size", type=int, default=10)
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--features_path", type=str)
@@ -97,9 +98,12 @@ if __name__ == "__main__":
     decoder = MeshedDecoder(
         len(text_field.vocab), 54, 3, text_field.vocab.stoi["<pad>"]
     )
-    model = Transformer(text_field.vocab.stoi["<bos>"], encoder, decoder).to(device)
+    model = MeshedMemoryTransformer(
+        text_field.vocab.stoi["<bos>"], encoder, decoder
+    ).to(device)
+    model = torch.nn.DataParallel(model)
 
-    data = torch.load("meshed_memory_transformer.pth")
+    data = torch.load(f"saved_models/{args.exp_name}_best.pth")
     model.load_state_dict(data["state_dict"])
 
     dict_dataset_test = test_dataset.image_dictionary(

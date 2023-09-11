@@ -9,8 +9,8 @@ from shutil import copyfile
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import Adam
-from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -20,13 +20,9 @@ from evaluation import Cider, PTBTokenizer
 from models.transformer import (
     MemoryAugmentedEncoder,
     MeshedDecoder,
+    MeshedMemoryTransformer,
     ScaledDotProductAttentionMemory,
-    Transformer,
 )
-
-random.seed(1234)
-torch.manual_seed(1234)
-np.random.seed(1234)
 
 
 def evaluate_loss(model, dataloader, loss_fn, text_field):
@@ -34,7 +30,7 @@ def evaluate_loss(model, dataloader, loss_fn, text_field):
     model.eval()
     running_loss = 0.0
     with tqdm(
-        desc="Epoch %d - validation" % e, unit="it", total=len(dataloader)
+        desc="Epoch %d - validation" % epoch, unit="it", total=len(dataloader)
     ) as pbar:
         with torch.no_grad():
             for it, (detections, captions) in enumerate(dataloader):
@@ -60,17 +56,19 @@ def evaluate_metrics(model, dataloader, text_field):
     gen = {}
     gts = {}
     with tqdm(
-        desc="Epoch %d - evaluation" % e, unit="it", total=len(dataloader)
+        desc="Epoch %d - evaluation" % epoch, unit="it", total=len(dataloader)
     ) as pbar:
         for it, (images, caps_gt) in enumerate(iter(dataloader)):
             images = images.to(device)
             with torch.no_grad():
+                # TODO: Remove hard-coded max length. Use --flag
+                # TODO: Remove hard-coded beam size. Use --flag
                 out, _ = model.module.beam_search(
                     images, 20, text_field.vocab.stoi["<eos>"], 5, out_size=1
                 )
             caps_gen = text_field.decode(out, join_words=False)
             for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
-                gen_i = " ".join([k for k, g in itertools.groupby(gen_i)])
+                gen_i = " ".join([k for k, _ in itertools.groupby(gen_i)])
                 gen["%d_%d" % (it, i)] = [
                     gen_i,
                 ]
@@ -86,9 +84,10 @@ def evaluate_metrics(model, dataloader, text_field):
 def train_xe(model, dataloader, optim, text_field):
     # Training with cross-entropy
     model.train()
-    # scheduler.step() # TODO: check if this is needed
     running_loss = 0.0
-    with tqdm(desc="Epoch %d - train" % e, unit="it", total=len(dataloader)) as pbar:
+    with tqdm(
+        desc="Epoch %d - train" % epoch, unit="it", total=len(dataloader)
+    ) as pbar:
         for it, (detections, captions) in enumerate(dataloader):
             detections = detections.to(device)
             captions = captions.to(device)
@@ -106,9 +105,9 @@ def train_xe(model, dataloader, optim, text_field):
 
             pbar.set_postfix(loss=running_loss / (it + 1))
             pbar.update()
-            scheduler.step()
 
     loss = running_loss / len(dataloader)
+    scheduler.step()
     return loss
 
 
@@ -122,7 +121,9 @@ def train_scst(model, dataloader, optim, cider, text_field):
     seq_len = 20
     beam_size = 5
 
-    with tqdm(desc="Epoch %d - train" % e, unit="it", total=len(dataloader)) as pbar:
+    with tqdm(
+        desc="Epoch %d - train" % epoch, unit="it", total=len(dataloader)
+    ) as pbar:
         for it, (detections, caps_gt) in enumerate(dataloader):
             detections = detections.to(device)
             outs, log_probs = model.beam_search(
@@ -178,21 +179,66 @@ def train_scst(model, dataloader, optim, cider, text_field):
 
 
 if __name__ == "__main__":
-    device = torch.device("cuda")
-    parser = argparse.ArgumentParser(description="Meshed-Memory Transformer")
-    parser.add_argument("--exp_name", type=str, default="m2_transformer")
-    parser.add_argument("--batch_size", type=int, default=10)
-    parser.add_argument("--workers", type=int, default=0)
-    parser.add_argument("--m", type=int, default=40)
-    parser.add_argument("--head", type=int, default=8)
-    parser.add_argument("--warmup", type=int, default=10000)
-    parser.add_argument("--resume_last", action="store_true")
-    parser.add_argument("--resume_best", action="store_true")
-    parser.add_argument("--features_path", type=str)
-    parser.add_argument("--annotation_folder", type=str)
-    parser.add_argument("--logs_folder", type=str, default="tensorboard_logs")
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+    parser = argparse.ArgumentParser(description="ViGCap Training Options")
+    parser.add_argument(
+        "--exp_name", type=str, default="ViGCap", help="Experiment name"
+    )
+    parser.add_argument(
+        "--learning_rate", type=float, default=3e-4, help="Initial learning rate"
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=16, help="Training batch size"
+    )
+    parser.add_argument(
+        "--max_epochs", type=int, default=20, help="Number of training epochs"
+    )
+    parser.add_argument(
+        "--patience", type=int, default=5, help="Patience for early stopping"
+    )
+    parser.add_argument(
+        "--workers", type=int, default=0, help="Number of dataloader workers"
+    )
+    parser.add_argument(
+        "--m", type=int, default=40, help="Number of meshed-memory vectors"
+    )
+    parser.add_argument(
+        "--head", type=int, default=8, help="Number of heads in multi-head attention"
+    )
+    parser.add_argument(
+        "--resume_last", action="store_true", help="Resume from last epoch"
+    )
+    parser.add_argument(
+        "--resume_best", action="store_true", help="Resume from best epoch"
+    )
+    parser.add_argument(
+        "--features_path", type=str, help="Path to COCO detection features .hdf5 file"
+    )
+    parser.add_argument(
+        "--annotation_folder", type=str, help="Path to COCO annotation folder"
+    )
+    parser.add_argument(
+        "--logs_folder",
+        type=str,
+        default="tensorboard_logs",
+        help="Path to tensorboard logs folder",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=1234, help="Seed for random number generators"
+    )
+    parser.add_argument(
+        "--test_every",
+        type=int,
+        default=-1,
+        help="Run model on the test set every N epochs",
+    )
+
     args = parser.parse_args()
-    print(args)
+
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
 
     print("Meshed-Memory Transformer Training")
 
@@ -223,26 +269,16 @@ if __name__ == "__main__":
     )
     train_dataset, val_dataset, test_dataset = dataset.splits
 
-    if not os.path.isfile("vocab_%s.pkl" % args.exp_name):
+    if not os.path.isfile("vocab.pkl"):
         print("Building vocabulary")
         text_field.build_vocab(train_dataset, val_dataset, min_freq=5)
-        pickle.dump(text_field.vocab, open("vocab_%s.pkl" % args.exp_name, "wb"))
+        pickle.dump(text_field.vocab, open("vocab.pkl", "wb"))
     else:
-        text_field.vocab = pickle.load(open("vocab_%s.pkl" % args.exp_name, "rb"))
+        text_field.vocab = pickle.load(open("vocab.pkl", "rb"))
 
-    # Model and dataloaders
-    encoder = MemoryAugmentedEncoder(
-        3,
-        0,
-        attention_module=ScaledDotProductAttentionMemory,
-        attention_module_kwargs={"m": args.m},
-    )
-    decoder = MeshedDecoder(
-        len(text_field.vocab), 54, 3, text_field.vocab.stoi["<pad>"]
-    )
-    model = Transformer(text_field.vocab.stoi["<bos>"], encoder, decoder).to(device)
-    model = nn.DataParallel(model)
-
+    # Dataloaders
+    # TODO: Speed this block up
+    # TODO: What do these do? What are they for?
     dict_dataset_train = train_dataset.image_dictionary(
         {"image": image_field, "text": RawField()}
     )
@@ -254,17 +290,56 @@ if __name__ == "__main__":
     dict_dataset_test = test_dataset.image_dictionary(
         {"image": image_field, "text": RawField()}
     )
+    ##########
 
-    def lambda_lr(s):
-        warm_up = args.warmup
-        s += 1
-        return (model.module.d_model**-0.5) * min(s**-0.5, s * warm_up**-1.5)
+    # TODO: Do we need to hold all these dataloaders in memory?
+    # What's the cost of creating them every time vs. holding them in memory?
+    dataloader_train = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.workers,
+        drop_last=True,
+    )
+    dataloader_val = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.workers,
+    )
+    dict_dataloader_train = DataLoader(
+        dict_dataset_train,
+        batch_size=args.batch_size // 5,
+        shuffle=True,
+        num_workers=args.workers,
+    )
+    dict_dataloader_val = DataLoader(dict_dataset_val, batch_size=args.batch_size // 5)
+    dict_dataloader_test = DataLoader(
+        dict_dataset_test, batch_size=args.batch_size // 5
+    )
+    print("Dataloaders created")
+
+    # Build Model
+    encoder = MemoryAugmentedEncoder(
+        3,
+        0,
+        attention_module=ScaledDotProductAttentionMemory,
+        attention_module_kwargs={"m": args.m},
+    )
+    decoder = MeshedDecoder(
+        len(text_field.vocab), 54, 3, text_field.vocab.stoi["<pad>"]
+    )
+    model = MeshedMemoryTransformer(
+        text_field.vocab.stoi["<bos>"], encoder, decoder
+    ).to(device)
+    model = nn.DataParallel(model)
+    print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
 
     # Initial conditions
-    optim = Adam(model.parameters(), lr=1, betas=(0.9, 0.98))
-    scheduler = LambdaLR(optim, lambda_lr)
-    # loss_fn = nn.NLLLoss(ignore_index=text_field.vocab.stoi["<pad>"])
-    loss_fn = nn.CrossEntropyLoss(ignore_index=text_field.vocab.stoi["<pad>"])
+    optim = Adam(model.parameters(), lr=args.learning_rate)
+    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=0.8)
+    loss_fn = nn.NLLLoss(ignore_index=text_field.vocab.stoi["<pad>"])
+    # loss_fn = nn.CrossEntropyLoss(ignore_index=text_field.vocab.stoi["<pad>"])
     use_rl = False
     best_cider = 0.0
     patience = 0
@@ -295,70 +370,42 @@ if __name__ == "__main__":
             )
 
     print("Training starts")
-    for e in range(start_epoch, start_epoch + 100):
-        # TODO: Move the dataloaders outside of the training loop
-        # TODO: Do we need to hold all these dataloaders in memory?
-        # What's the cost of creating them every time vs. holding them in memory?
-        dataloader_train = DataLoader(
-            train_dataset,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=args.workers,
-            drop_last=True,
-        )
-        dataloader_val = DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=args.workers,
-        )
-        dict_dataloader_train = DataLoader(
-            dict_dataset_train,
-            batch_size=args.batch_size // 5,
-            shuffle=True,
-            num_workers=args.workers,
-        )
-        dict_dataloader_val = DataLoader(
-            dict_dataset_val, batch_size=args.batch_size // 5
-        )
-        dict_dataloader_test = DataLoader(
-            dict_dataset_test, batch_size=args.batch_size // 5
-        )
+    for epoch in range(start_epoch, args.max_epochs):
+        # if not use_rl:
+        #     train_loss = train_xe(model, dataloader_train, optim, text_field)
+        #     writer.add_scalar("data/train_loss", train_loss, epoch)
+        # else:
+        #     train_loss, reward, reward_baseline = train_scst(
+        #         model, dict_dataloader_train, optim, cider_train, text_field
+        #     )
+        #     writer.add_scalar("data/train_loss", train_loss, epoch)
+        #     writer.add_scalar("data/reward", reward, epoch)
+        #     writer.add_scalar("data/reward_baseline", reward_baseline, epoch)
 
-        if not use_rl:
-            train_loss = train_xe(model, dataloader_train, optim, text_field)
-            writer.add_scalar("data/train_loss", train_loss, e)
-        else:
-            train_loss, reward, reward_baseline = train_scst(
-                model, dict_dataloader_train, optim, cider_train, text_field
-            )
-            writer.add_scalar("data/train_loss", train_loss, e)
-            writer.add_scalar("data/reward", reward, e)
-            writer.add_scalar("data/reward_baseline", reward_baseline, e)
-
-        # Validation loss
-        val_loss = evaluate_loss(model, dataloader_val, loss_fn, text_field)
-        writer.add_scalar("data/val_loss", val_loss, e)
+        # # Validation loss
+        val_loss = 0
+        # val_loss = evaluate_loss(model, dataloader_val, loss_fn, text_field)
+        # writer.add_scalar("data/val_loss", val_loss, epoch)
 
         # Validation scores
         scores = evaluate_metrics(model, dict_dataloader_val, text_field)
         print("Validation scores", scores)
         val_cider = scores["CIDEr"]
-        writer.add_scalar("data/val_cider", val_cider, e)
-        writer.add_scalar("data/val_bleu1", scores["BLEU"][0], e)
-        writer.add_scalar("data/val_bleu4", scores["BLEU"][3], e)
-        writer.add_scalar("data/val_meteor", scores["METEOR"], e)
-        writer.add_scalar("data/val_rouge", scores["ROUGE"], e)
+        writer.add_scalar("data/val_cider", val_cider, epoch)
+        writer.add_scalar("data/val_bleu1", scores["BLEU"][0], epoch)
+        writer.add_scalar("data/val_bleu4", scores["BLEU"][3], epoch)
+        writer.add_scalar("data/val_meteor", scores["METEOR"], epoch)
+        writer.add_scalar("data/val_rouge", scores["ROUGE"], epoch)
 
-        # TODO: Add a flag to disable test or get it to run every N epochs
         # Test scores
-        scores = evaluate_metrics(model, dict_dataloader_test, text_field)
-        print("Test scores", scores)
-        writer.add_scalar("data/test_cider", scores["CIDEr"], e)
-        writer.add_scalar("data/test_bleu1", scores["BLEU"][0], e)
-        writer.add_scalar("data/test_bleu4", scores["BLEU"][3], e)
-        writer.add_scalar("data/test_meteor", scores["METEOR"], e)
-        writer.add_scalar("data/test_rouge", scores["ROUGE"], e)
+        if args.test_every > 0 and epoch % args.test_every == 0:
+            scores = evaluate_metrics(model, dict_dataloader_test, text_field)
+            print("Test scores", scores)
+            writer.add_scalar("data/test_cider", scores["CIDEr"], epoch)
+            writer.add_scalar("data/test_bleu1", scores["BLEU"][0], epoch)
+            writer.add_scalar("data/test_bleu4", scores["BLEU"][3], epoch)
+            writer.add_scalar("data/test_meteor", scores["METEOR"], epoch)
+            writer.add_scalar("data/test_rouge", scores["ROUGE"], epoch)
 
         # Prepare for next epoch
         best = False
@@ -371,7 +418,8 @@ if __name__ == "__main__":
 
         switch_to_rl = False
         exit_train = False
-        if patience == 5:
+
+        if patience == args.patience:
             if not use_rl:
                 use_rl = True
                 switch_to_rl = True
@@ -400,7 +448,7 @@ if __name__ == "__main__":
                 "cuda_rng_state": torch.cuda.get_rng_state(),
                 "numpy_rng_state": np.random.get_state(),
                 "random_rng_state": random.getstate(),
-                "epoch": e,
+                "epoch": epoch,
                 "val_loss": val_loss,
                 "val_cider": val_cider,
                 "state_dict": model.state_dict(),
