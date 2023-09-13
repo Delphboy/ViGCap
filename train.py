@@ -9,7 +9,6 @@ from shutil import copyfile
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.optim import Adam
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -126,7 +125,7 @@ def train_scst(model, dataloader, optim, cider, text_field):
     ) as pbar:
         for it, (detections, caps_gt) in enumerate(dataloader):
             detections = detections.to(device)
-            outs, log_probs = model.beam_search(
+            outs, log_probs = model.module.beam_search(
                 detections,
                 seq_len,
                 text_field.vocab.stoi["<eos>"],
