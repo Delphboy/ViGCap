@@ -224,7 +224,10 @@ if __name__ == "__main__":
         help="Path to tensorboard logs folder",
     )
     parser.add_argument(
-        "--seed", type=int, default=1234, help="Seed for random number generators"
+        "--seed",
+        type=int,
+        default=-1,
+        help="Seed for random number generators. -1 for random seed each time",
     )
     parser.add_argument(
         "--test_every",
@@ -235,9 +238,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    if args.seed > 0:
+        random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
 
     print("Meshed-Memory Transformer Training")
 

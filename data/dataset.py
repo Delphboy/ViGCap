@@ -10,6 +10,14 @@ from .example import Example
 from .utils import nostdout
 
 
+def unique(sequence):
+    seen = set()
+    if isinstance(sequence[0], list):
+        return [x for x in sequence if not (tuple(x) in seen or seen.add(tuple(x)))]
+    else:
+        return [x for x in sequence if not (x in seen or seen.add(x))]
+
+
 class Dataset(object):
     def __init__(self, examples, fields):
         self.examples = examples
@@ -150,14 +158,6 @@ class DictionaryDataset(Dataset):
         return len(self.key_dataset)
 
 
-def unique(sequence):
-    seen = set()
-    if isinstance(sequence[0], list):
-        return [x for x in sequence if not (tuple(x) in seen or seen.add(tuple(x)))]
-    else:
-        return [x for x in sequence if not (x in seen or seen.add(x))]
-
-
 class PairedDataset(Dataset):
     def __init__(self, examples, fields):
         assert "image" in fields
@@ -173,24 +173,11 @@ class PairedDataset(Dataset):
         dataset = Dataset(examples, {"image": self.image_field})
         return dataset
 
-    # def text_set(self):
-    #     text_list = [e.text for e in self.examples]
-    #     text_list = unique(text_list)
-    #     examples = [Example.fromdict({"text": t}) for t in text_list]
-    #     dataset = Dataset(examples, {"text": self.text_field})
-    #     return dataset
-
     def image_dictionary(self, fields=None):
         if not fields:
             fields = self.fields
         dataset = DictionaryDataset(self.examples, fields, key_fields="image")
         return dataset
-
-    # def text_dictionary(self, fields=None):
-    #     if not fields:
-    #         fields = self.fields
-    #     dataset = DictionaryDataset(self.examples, fields, key_fields="text")
-    #     return dataset
 
     @property
     def splits(self):
