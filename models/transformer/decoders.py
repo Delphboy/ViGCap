@@ -141,14 +141,14 @@ class MeshedDecoder(Module):
         )
         self.register_state("running_seq", torch.zeros((1,)).long())
 
-    def forward(self, input, encoder_output, mask_encoder):
+    def forward(self, sequence, encoder_output, mask_encoder):
         # input (b_s, seq_len)
-        b_s, seq_len = input.shape[:2]
+        b_s, seq_len = sequence.shape[:2]
         mask_queries = (
-            (input != self.padding_idx).unsqueeze(-1).float()
+            (sequence != self.padding_idx).unsqueeze(-1).float()
         )  # (b_s, seq_len, 1)
         mask_self_attention = torch.triu(
-            torch.ones((seq_len, seq_len), dtype=torch.uint8, device=input.device),
+            torch.ones((seq_len, seq_len), dtype=torch.uint8, device=sequence.device),
             diagonal=1,
         )
         mask_self_attention = mask_self_attention.unsqueeze(0).unsqueeze(
@@ -156,7 +156,7 @@ class MeshedDecoder(Module):
         )  # (1, 1, seq_len, seq_len)
         mask_self_attention = (
             mask_self_attention
-            + (input == self.padding_idx).unsqueeze(1).unsqueeze(1).byte()
+            + (sequence == self.padding_idx).unsqueeze(1).unsqueeze(1).byte()
         )
         mask_self_attention = mask_self_attention.gt(0)  # (b_s, 1, seq_len, seq_len)
         if self._is_stateful:
@@ -166,14 +166,14 @@ class MeshedDecoder(Module):
             mask_self_attention = self.running_mask_self_attention
 
         seq = (
-            torch.arange(1, seq_len + 1).view(1, -1).expand(b_s, -1).to(input.device)
+            torch.arange(1, seq_len + 1).view(1, -1).expand(b_s, -1).to(sequence.device)
         )  # (b_s, seq_len)
         seq = seq.masked_fill(mask_queries.squeeze(-1) == 0, 0)
         if self._is_stateful:
             self.running_seq.add_(1)
             seq = self.running_seq
 
-        out = self.word_emb(input.type(torch.int64)) + self.pos_emb(seq)
+        out = self.word_emb(sequence.type(torch.int64)) + self.pos_emb(seq)
         for i, layer in enumerate(self.layers):
             out = layer(
                 out, encoder_output, mask_queries, mask_self_attention, mask_encoder

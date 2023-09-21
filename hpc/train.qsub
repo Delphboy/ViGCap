@@ -22,10 +22,11 @@ source .venv/bin/activate
 
 # Run!
 python3 train.py --exp_name "ViGCap" \
-                --batch_size 128 \
+                --dataset "coco" \
+                --dataset_img_path "/data/scratch/eey362/datasets/coco" \
+                --dataset_ann_path "/data/scratch/eey362/datasets/coco/dataset_coco.json" \
                 --m 40 \
                 --head 8 \
-                --warmup 1000 \
-                --features_path "/data/scratch/eey362/meshed-data/coco_detections.hdf5" \
-                --annotation_folder "/data/home/eey362/ViGCap/data/annotations" \
-                --workers 8
+                --workers 4 \
+                --batch_size 128 \
+                --patience -1 \

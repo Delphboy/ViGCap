@@ -123,6 +123,9 @@ class ScaledDotProductAttentionMemory(nn.Module):
         nn.init.constant_(self.fc_v.bias, 0)
         nn.init.constant_(self.fc_o.bias, 0)
 
+    # At the time queries, keys, and values are passed to this function, they
+    # are layer_normalised(out) where out is MemoryAugmentedEncoder(input) and input
+    # is the input to the encoder.
     def forward(
         self, queries, keys, values, attention_mask=None, attention_weights=None
     ):

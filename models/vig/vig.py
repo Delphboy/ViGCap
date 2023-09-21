@@ -4,11 +4,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from gcn_lib import Grapher, act_layer
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.layers import DropPath
 from timm.models.registry import register_model
 from torch.nn import Sequential as Seq
+
+from models.vig.gcn_lib import Grapher, act_layer
 
 
 def _cfg(url="", **kwargs):
@@ -61,11 +62,11 @@ class FFN(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
-        shortcut = x
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.fc2(x)
-        x = self.drop_path(x) + shortcut
+        shortcut = x  # [B, C, H, W]
+        x = self.fc1(x)  # [B, C*4, H, W]
+        x = self.act(x)  # [B, C*4, H, W])
+        x = self.fc2(x)  # [B, C, H, W]
+        x = self.drop_path(x) + shortcut  # [B, C, H, W]
         return x
 
 
@@ -126,7 +127,7 @@ class DeepGCN(torch.nn.Module):
 
         self.pos_embed = nn.Parameter(torch.zeros(1, channels, 14, 14))
 
-        if opt.use_dilation:
+        if opt.use_dilation:  # True
             self.backbone = Seq(
                 *[
                     Seq(
@@ -189,15 +190,18 @@ class DeepGCN(torch.nn.Module):
                     m.bias.data.zero_()
                     m.bias.requires_grad = True
 
-    def forward(self, inputs):
-        x = self.stem(inputs) + self.pos_embed
-        B, C, H, W = x.shape
+    def forward(self, image):
+        patch_embeddings = self.stem(image) + self.pos_embed
+        B, C, H, W = patch_embeddings.shape
 
         for i in range(self.n_blocks):
-            x = self.backbone[i](x)
+            x = self.backbone[i](patch_embeddings)  # [B, C, H, W]
 
-        x = F.adaptive_avg_pool2d(x, 1)
-        return self.prediction(x).squeeze(-1).squeeze(-1)
+        x = x.view(B, C, H * W)
+        return x.permute(0, 2, 1)
+
+        # x = F.adaptive_avg_pool2d(x, 1)  # [B, C, 1, 1]
+        # return self.prediction(x).squeeze(-1).squeeze(-1)  # [B, 1000]
 
 
 @register_model

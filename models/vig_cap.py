@@ -1,18 +1,21 @@
 import torch
 from torch import nn
 
-from ..captioning_model import CaptioningModel
+from models.vig.vig import vig_ti_224_gelu
+
+from .captioning_model import CaptioningModel
 
 
-class MeshedMemoryTransformer(CaptioningModel):
+class VigCap(CaptioningModel):
     def __init__(self, bos_idx, encoder, decoder):
-        super(MeshedMemoryTransformer, self).__init__()
+        super(VigCap, self).__init__()
         self.bos_idx = bos_idx
         self.encoder = encoder
         self.decoder = decoder
         self.register_state("enc_output", None)
         self.register_state("mask_enc", None)
         self.init_weights()
+        self.vig = vig_ti_224_gelu()
 
     @property
     def d_model(self):
@@ -23,8 +26,14 @@ class MeshedMemoryTransformer(CaptioningModel):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, input, seq, *args):
+    def forward(self, images, seq, *args):
+        # Get a set of image features from ViG
+        input = self.vig(images)
+
+        # Encode the image features
         enc_output, mask_enc = self.encoder(input)
+
+        # Meshed decoder
         dec_output = self.decoder(seq, enc_output, mask_enc)
         return dec_output
 

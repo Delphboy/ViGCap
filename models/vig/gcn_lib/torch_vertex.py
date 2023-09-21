@@ -151,10 +151,10 @@ class DyGraphConv2d(GraphConv2d):
         if self.r > 1:
             y = F.avg_pool2d(x, self.r, self.r)
             y = y.reshape(B, C, -1, 1).contiguous()
-        x = x.reshape(B, C, -1, 1).contiguous()
-        edge_index = self.dilated_knn_graph(x, y, relative_pos)
-        x = super(DyGraphConv2d, self).forward(x, edge_index, y)
-        return x.reshape(B, -1, H, W).contiguous()
+        x = x.reshape(B, C, -1, 1).contiguous()  # [B, C, N, 1]
+        edge_index = self.dilated_knn_graph(x, y, relative_pos)  # [2, B, N, k]
+        x = super(DyGraphConv2d, self).forward(x, edge_index, y)  # [B, C*2, N, 1]
+        return x.reshape(B, -1, H, W).contiguous()  # [B, C, H, W]
 
 
 class Grapher(nn.Module):
@@ -235,11 +235,11 @@ class Grapher(nn.Module):
             ).squeeze(0)
 
     def forward(self, x):
-        _tmp = x
+        _tmp = x  # [B, C, H, W]
         x = self.fc1(x)
         B, C, H, W = x.shape
-        relative_pos = self._get_relative_pos(self.relative_pos, H, W)
-        x = self.graph_conv(x, relative_pos)
-        x = self.fc2(x)
-        x = self.drop_path(x) + _tmp
+        relative_pos = self._get_relative_pos(self.relative_pos, H, W)  # None
+        x = self.graph_conv(x, relative_pos)  # [B, C*2, H, W]
+        x = self.fc2(x)  # [B, C, H, W]
+        x = self.drop_path(x) + _tmp  # [B, C, H, W]
         return x

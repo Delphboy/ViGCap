@@ -17,13 +17,13 @@ class CaptioningModel(Module):
 
     def forward(self, images, seq, *args):
         device = images.device
-        b_s = images.size(0)
-        seq_len = seq.size(1)
-        state = self.init_state(b_s, device)
+        batch_size = images.size(0)
+        sequence_length = seq.size(1)
+        state = self.init_state(batch_size, device)
         out = None
 
         outputs = []
-        for t in range(seq_len):
+        for t in range(sequence_length):
             out, state = self.step(
                 t, state, out, images, seq, *args, mode="teacher_forcing"
             )

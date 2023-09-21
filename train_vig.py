@@ -2,29 +2,27 @@ import argparse
 import itertools
 import multiprocessing
 import os
-import pickle
 import random
 from shutil import copyfile
 
 import numpy as np
 import torch
-from torch.nn import NLLLoss
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import Adam
-from torch.optim.lr_scheduler import LambdaLR
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 import evaluation
-from data import COCO, DataLoader, ImageDetectionsField, RawField, TextField
-
-# from data.coco_karpathy import CaptioningDataset, CocoBatcher
+from data.captioning_dataset import CaptioningDataset, CocoBatcher
 from evaluation import Cider, PTBTokenizer
 from models.transformer import (
     MemoryAugmentedEncoder,
     MeshedDecoder,
-    MeshedMemoryTransformer,
     ScaledDotProductAttentionMemory,
 )
+from models.vig_cap import VigCap
 
 
 def evaluate_loss(model, dataloader, loss_fn):
@@ -35,9 +33,12 @@ def evaluate_loss(model, dataloader, loss_fn):
         desc="Epoch %d - validation" % epoch, unit="it", total=len(dataloader)
     ) as pbar:
         with torch.no_grad():
-            for it, (detections, captions) in enumerate(dataloader):
-                detections, captions = detections.to(device), captions.to(device)
+            for it, (detections, captions, lengths) in enumerate(dataloader):
+                detections = detections.to(device)
+                captions = captions[0:-1:5, :].to(device)
+
                 out = model(detections, captions)
+
                 captions = captions[:, 1:].contiguous()
                 out = out[:, :-1].contiguous()
                 loss = loss_fn(
@@ -54,23 +55,52 @@ def evaluate_loss(model, dataloader, loss_fn):
 
 
 def evaluate_metrics(model, dataloader, text_field):
-    import itertools
-
     model.eval()
     gen = {}
     gts = {}
     with tqdm(
         desc="Epoch %d - evaluation" % epoch, unit="it", total=len(dataloader)
     ) as pbar:
-        for it, (images, caps_gt) in enumerate(iter(dataloader)):
+        for it, (images, caps_gt, lengths) in enumerate(iter(dataloader)):
             images = images.to(device)
+
             with torch.no_grad():
                 # TODO: Remove hard-coded max length. Use --flag
                 # TODO: Remove hard-coded beam size. Use --flag
                 out, _ = model.module.beam_search(
-                    images, 20, text_field.vocab.stoi["<eos>"], 5, out_size=1
+                    model.module.vig(images),
+                    20,
+                    text_field.vocab.stoi["<EOS>"],
+                    5,
+                    out_size=1,
                 )
-            caps_gen = text_field.decode(out, join_words=False)
+            caps_gen = []
+            for b in range(out.shape[0]):
+                caps_gen.append(
+                    " ".join(
+                        [
+                            dataloader.dataset.vocab.itos[str(int(i))]
+                            for i in out[b]
+                            if i != text_field.vocab.stoi["<PAD>"]
+                        ]
+                    )
+                )
+
+            caps_gt = [
+                " ".join(
+                    [
+                        dataloader.dataset.vocab.itos[str(int(i))]
+                        for i in cap
+                        if i != text_field.vocab.stoi["<PAD>"]
+                    ]
+                )
+                for cap in caps_gt
+            ]
+
+            print(caps_gen)
+            print(caps_gt)
+            print()
+
             for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
                 gen_i = " ".join([k for k, _ in itertools.groupby(gen_i)])
                 gen["%d_%d" % (it, i)] = [
@@ -92,16 +122,24 @@ def train_xe(model, dataloader, optim):
     with tqdm(
         desc="Epoch %d - train" % epoch, unit="it", total=len(dataloader)
     ) as pbar:
-        for it, (images, captions) in enumerate(dataloader):
+        for it, (images, captions, lengths) in enumerate(dataloader):
             images = images.to(device)
-            captions = captions.to(device)
+            captions = captions[0:-1:5, :].to(device)
 
             out = model(images, captions)
 
             optim.zero_grad()
             captions_gt = captions[:, 1:].contiguous()
             out = out[:, :-1].contiguous()
-            loss = loss_fn(out.view(-1, len(text_field.vocab)), captions_gt.view(-1))
+
+            if it % 100 == 0:
+                cap = torch.argmax(F.softmax(out[0, :, :], dim=1), dim=1)
+                print(
+                    " ".join([dataloader.dataset.vocab.itos[str(int(i))] for i in cap])
+                )
+            loss = loss_fn(
+                out.view(-1, len(dataloader.dataset.vocab)), captions_gt.view(-1)
+            )
             loss.backward()
 
             optim.step()
@@ -111,7 +149,7 @@ def train_xe(model, dataloader, optim):
             pbar.update()
 
     loss = running_loss / len(dataloader)
-    scheduler.step()
+    # scheduler.step()
     return loss
 
 
@@ -128,36 +166,42 @@ def train_scst(model, dataloader, optim, cider, text_field):
     with tqdm(
         desc="Epoch %d - train" % epoch, unit="it", total=len(dataloader)
     ) as pbar:
-        for it, (detections, caps_gt) in enumerate(dataloader):
-            detections = detections.to(device)
+        for it, (images, caps_gt, lengths) in enumerate(dataloader):
+            images = images.to(device)
             outs, log_probs = model.module.beam_search(
-                detections,
+                model.module.vig(images),
                 seq_len,
-                text_field.vocab.stoi["<eos>"],
+                text_field.vocab.stoi["<EOS>"],
                 beam_size,
                 out_size=beam_size,
             )
             optim.zero_grad()
 
             # Rewards
-            caps_gen = text_field.decode(outs.view(-1, seq_len))
-            caps_gt = list(
-                itertools.chain(
-                    *(
-                        [
-                            c,
-                        ]
-                        * beam_size
-                        for c in caps_gt
+            caps_gen = []
+            for b in range(outs.shape[0]):
+                caps_gen.append(
+                    " ".join(
+                        [dataloader.dataset.vocab.itos[str(int(i))] for i in outs[b]]
                     )
                 )
-            )
+
+            caps_gt = [
+                " ".join(
+                    [
+                        dataloader.dataset.vocab.itos[str(int(i))]
+                        for i in cap
+                        if i != text_field.vocab.stoi["<PAD>"]
+                    ]
+                )
+                for cap in caps_gt
+            ]
             caps_gen, caps_gt = tokenizer_pool.map(
                 evaluation.PTBTokenizer.tokenize, [caps_gen, caps_gt]
             )
             reward = cider.compute_score(caps_gt, caps_gen)[1].astype(np.float32)
             reward = (
-                torch.from_numpy(reward).to(device).view(detections.shape[0], beam_size)
+                torch.from_numpy(reward).to(device).view(images.shape[0], beam_size)
             )
             reward_baseline = torch.mean(reward, -1, keepdim=True)
             loss = -torch.mean(log_probs, -1) * (reward - reward_baseline)
@@ -187,6 +231,22 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="ViGCap Training Options")
     parser.add_argument(
+        "--dataset",
+        type=str,
+        default="coco",
+        help="[coco (default) | flickr30k | flickr8k]",
+    )
+    parser.add_argument(
+        "--dataset_img_path",
+        type=str,
+        help="Path to the dataset images folder",
+    )
+    parser.add_argument(
+        "--dataset_ann_path",
+        type=str,
+        help="Path to the dataset annotations file",
+    )
+    parser.add_argument(
         "--exp_name", type=str, default="ViGCap", help="Experiment name"
     )
     parser.add_argument(
@@ -199,7 +259,7 @@ if __name__ == "__main__":
         "--max_epochs", type=int, default=20, help="Number of training epochs"
     )
     parser.add_argument(
-        "--patience", type=int, default=5, help="Patience for early stopping"
+        "--patience", type=int, default=5, help="Early stopping patience | -1 = disable"
     )
     parser.add_argument(
         "--workers", type=int, default=0, help="Number of dataloader workers"
@@ -215,12 +275,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--resume_best", action="store_true", help="Resume from best epoch"
-    )
-    parser.add_argument(
-        "--features_path", type=str, help="Path to COCO detection features .hdf5 file"
-    )
-    parser.add_argument(
-        "--annotation_folder", type=str, help="Path to COCO annotation folder"
     )
     parser.add_argument(
         "--logs_folder",
@@ -248,127 +302,67 @@ if __name__ == "__main__":
         torch.manual_seed(args.seed)
         np.random.seed(args.seed)
 
-    print("Meshed-Memory Transformer Training")
+    print("ViGCap Training")
 
     writer = SummaryWriter(log_dir=os.path.join(args.logs_folder, args.exp_name))
 
-    # Pipeline for image regions
-    image_field = ImageDetectionsField(
-        detections_path=args.features_path, max_detections=50, load_in_tmp=False
+    # Load the data
+    talk_file_location = f"data/{args.dataset}_talk.json"
+
+    train_data = CaptioningDataset(
+        args.dataset_img_path,
+        args.dataset_ann_path,
+        split="train",
+        dataset_name=args.dataset,
+    )
+    val_data = CaptioningDataset(
+        args.dataset_img_path,
+        args.dataset_ann_path,
+        split="val",
+        dataset_name=args.dataset,
+    )
+    test_data = CaptioningDataset(
+        args.dataset_img_path,
+        args.dataset_ann_path,
+        split="test",
+        dataset_name=args.dataset,
     )
 
-    # Pipeline for text
-    text_field = TextField(
-        init_token="<bos>",
-        eos_token="<eos>",
-        lower=True,
-        tokenize="spacy",
-        remove_punctuation=True,
-        nopoints=False,
-    )
-
-    # Create the dataset
-    dataset = COCO(
-        image_field,
-        text_field,
-        "coco/images/",
-        args.annotation_folder,
-        args.annotation_folder,
-    )
-    train_dataset, val_dataset, test_dataset = dataset.splits
-
-    if not os.path.isfile("vocab.pkl"):
-        print("Building vocabulary")
-        text_field.build_vocab(train_dataset, val_dataset, min_freq=5)
-        pickle.dump(text_field.vocab, open("vocab.pkl", "wb"))
-    else:
-        text_field.vocab = pickle.load(open("vocab.pkl", "rb"))
-
-    # Dataloaders
-    # TODO: Speed this block up
-    # TODO: What do these do? What are they for?
-    dict_dataset_train = train_dataset.image_dictionary(
-        {"image": image_field, "text": RawField()}
-    )
-    ref_caps_train = list(train_dataset.text)
-    cider_train = Cider(PTBTokenizer.tokenize(ref_caps_train))
-    dict_dataset_val = val_dataset.image_dictionary(
-        {"image": image_field, "text": RawField()}
-    )
-    dict_dataset_test = test_dataset.image_dictionary(
-        {"image": image_field, "text": RawField()}
-    )
-    #########
-
-    # TODO: Do we need to hold all these dataloaders in memory?
-    # What's the cost of creating them every time vs. holding them in memory?
-    dataloader_train = DataLoader(
-        train_dataset,
+    train_dataloader = DataLoader(
+        train_data,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=args.workers,
-        drop_last=True,
+        collate_fn=CocoBatcher(talk_file_location),
     )
-    dataloader_val = DataLoader(
-        val_dataset,
+    val_dataloader = DataLoader(
+        val_data,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=args.workers,
+        collate_fn=CocoBatcher(talk_file_location),
     )
-    dict_dataloader_train = DataLoader(
-        dict_dataset_train,
-        batch_size=args.batch_size // 5,
-        shuffle=True,
-        num_workers=args.workers,
-    )
-    dict_dataloader_val = DataLoader(dict_dataset_val, batch_size=args.batch_size // 5)
-    dict_dataloader_test = DataLoader(
-        dict_dataset_test, batch_size=args.batch_size // 5
+    test_dataloader = DataLoader(
+        test_data,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=CocoBatcher(talk_file_location),
     )
 
-    # FIXME: Don't hardcode these paths - put them in args
-    # coco_img_path = "/import/gameai-01/eey362/datasets/coco/images/"
-    # coco_ann_path = "/homes/hps01/ViGCap/data/karpathy_splits/dataset_coco.json"
-    # talk_file_location = "/homes/hps01/ViGCap/data/coco_talk.json"
-    # train_data = CaptioningDataset(coco_img_path, coco_ann_path, split="train")
-    # val_data = CaptioningDataset(coco_img_path, coco_ann_path, split="val")
-    # test_data = CaptioningDataset(coco_img_path, coco_ann_path, split="test")
-
-    # train_dataloader = DataLoader(
-    #     train_data,
-    #     batch_size=args.batch_size,
-    #     shuffle=True,
-    #     collate_fn=CocoBatcher(talk_file_location),
-    # )
-    # val_dataloader = DataLoader(
-    #     val_data,
-    #     batch_size=args.batch_size,
-    #     shuffle=False,
-    #     collate_fn=CocoBatcher(talk_file_location),
-    # )
-    # test_dataloader = DataLoader(
-    #     test_data,
-    #     batch_size=args.batch_size,
-    #     shuffle=False,
-    #     collate_fn=CocoBatcher(talk_file_location),
-    # )
+    ref_caps_train = list(train_data.captions)
+    cider_train = Cider(PTBTokenizer.tokenize(ref_caps_train))
 
     print("Dataloaders created")
 
     encoder = MemoryAugmentedEncoder(
         3,
         0,
+        d_in=192,
         attention_module=ScaledDotProductAttentionMemory,
         attention_module_kwargs={"m": args.m},
     )
     decoder = MeshedDecoder(
-        len(text_field.vocab), 54, 3, text_field.vocab.stoi["<pad>"]
+        len(train_data.vocab), 54, 3, train_data.vocab.stoi["<PAD>"]
     )
-    model = MeshedMemoryTransformer(
-        text_field.vocab.stoi["<bos>"], encoder, decoder
-    ).to(device)
-
-    import torch.nn as nn
+    model = VigCap(train_data.vocab.stoi["<SOS>"], encoder, decoder).to(device)
 
     model = nn.DataParallel(model)
     print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
@@ -376,8 +370,8 @@ if __name__ == "__main__":
     # Initial conditions
     optim = Adam(model.parameters(), lr=args.learning_rate)
     scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=0.8)
-    loss_fn = nn.NLLLoss(ignore_index=text_field.vocab.stoi["<pad>"])
-    # loss_fn = nn.CrossEntropyLoss(ignore_index=train_data.vocab.stoi["<pad>"])
+    # loss_fn = nn.NLLLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
+    loss_fn = nn.CrossEntropyLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
     use_rl = False
     best_cider = 0.0
     patience = 0
@@ -410,22 +404,22 @@ if __name__ == "__main__":
     print("Training starts")
     for epoch in range(start_epoch, args.max_epochs):
         if not use_rl:
-            train_loss = train_xe(model, dataloader_train, optim)
+            train_loss = train_xe(model, train_dataloader, optim)
             writer.add_scalar("data/train_loss", train_loss, epoch)
         else:
             train_loss, reward, reward_baseline = train_scst(
-                model, dict_dataloader_train, optim, cider_train, text_field
+                model, train_dataloader, optim, cider_train, train_data
             )
             writer.add_scalar("data/train_loss", train_loss, epoch)
             writer.add_scalar("data/reward", reward, epoch)
             writer.add_scalar("data/reward_baseline", reward_baseline, epoch)
 
         # Validation loss
-        val_loss = evaluate_loss(model, dataloader_val, loss_fn)
+        val_loss = evaluate_loss(model, val_dataloader, loss_fn)
         writer.add_scalar("data/val_loss", val_loss, epoch)
 
         # Validation scores
-        scores = evaluate_metrics(model, dict_dataloader_val, text_field)
+        scores = evaluate_metrics(model, val_dataloader, val_data)
         print("Validation scores", scores)
         val_cider = scores["CIDEr"]
         writer.add_scalar("data/val_cider", val_cider, epoch)
@@ -436,7 +430,7 @@ if __name__ == "__main__":
 
         # Test scores
         if args.test_every > 0 and epoch % args.test_every == 0:
-            scores = evaluate_metrics(model, dict_dataloader_test, text_field)
+            scores = evaluate_metrics(model, test_dataloader, test_data)
             print("Test scores", scores)
             writer.add_scalar("data/test_cider", scores["CIDEr"], epoch)
             writer.add_scalar("data/test_bleu1", scores["BLEU"][0], epoch)

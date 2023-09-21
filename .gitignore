@@ -167,3 +167,5 @@ evaluation/meteor/data/
 tensorboard_logs/
 *.pkl
 saved_models/
+*_talk.json
+karpathy_splits/
