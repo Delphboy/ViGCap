@@ -37,9 +37,11 @@ def preprocess_captions(captions: List[str]) -> List[str]:
     # Disgard non-alphanumeric characters
     non_alphanumeric = [chr(i) for i in range(33, 128) if not chr(i).isalnum()]
     cleaned = []
-    # Some images have more than 5 captions.. (looking at you COCOID 215259)
+
     for sentence in captions:
         for char in non_alphanumeric:
             sentence = sentence.replace(char, "")
         cleaned.append(sentence.strip())
+        while "  " in sentence:
+            sentence = sentence.replace("  ", " ")
     return cleaned

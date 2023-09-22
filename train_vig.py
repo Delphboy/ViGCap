@@ -3,6 +3,7 @@ import itertools
 import multiprocessing
 import os
 import random
+import sys
 from shutil import copyfile
 
 import numpy as np
@@ -58,6 +59,7 @@ def evaluate_metrics(model, dataloader, text_field):
     model.eval()
     gen = {}
     gts = {}
+
     with tqdm(
         desc="Epoch %d - evaluation" % epoch, unit="it", total=len(dataloader)
     ) as pbar:
@@ -82,6 +84,8 @@ def evaluate_metrics(model, dataloader, text_field):
                             dataloader.dataset.vocab.itos[str(int(i))]
                             for i in out[b]
                             if i != text_field.vocab.stoi["<PAD>"]
+                            and i != text_field.vocab.stoi["<EOS>"]
+                            and i != text_field.vocab.stoi["<SOS>"]
                         ]
                     )
                 )
@@ -92,17 +96,20 @@ def evaluate_metrics(model, dataloader, text_field):
                         dataloader.dataset.vocab.itos[str(int(i))]
                         for i in cap
                         if i != text_field.vocab.stoi["<PAD>"]
+                        and i != text_field.vocab.stoi["<EOS>"]
+                        and i != text_field.vocab.stoi["<SOS>"]
                     ]
                 )
                 for cap in caps_gt
             ]
+
+            caps_gt = [caps_gt[i : i + 5] for i in range(0, len(caps_gt), 5)]
 
             print(caps_gen)
             print(caps_gt)
             print()
 
             for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
-                gen_i = " ".join([k for k, _ in itertools.groupby(gen_i)])
                 gen["%d_%d" % (it, i)] = [
                     gen_i,
                 ]
@@ -161,7 +168,8 @@ def train_scst(model, dataloader, optim, cider, text_field):
     model.train()
     running_loss = 0.0
     seq_len = 20
-    beam_size = 5
+    beam_size = 3
+    out_size = 1
 
     with tqdm(
         desc="Epoch %d - train" % epoch, unit="it", total=len(dataloader)
@@ -173,7 +181,7 @@ def train_scst(model, dataloader, optim, cider, text_field):
                 seq_len,
                 text_field.vocab.stoi["<EOS>"],
                 beam_size,
-                out_size=beam_size,
+                out_size=out_size,
             )
             optim.zero_grad()
 
@@ -182,7 +190,13 @@ def train_scst(model, dataloader, optim, cider, text_field):
             for b in range(outs.shape[0]):
                 caps_gen.append(
                     " ".join(
-                        [dataloader.dataset.vocab.itos[str(int(i))] for i in outs[b]]
+                        [
+                            dataloader.dataset.vocab.itos[str(int(i))]
+                            for i in outs[b]
+                            if i != text_field.vocab.stoi["<PAD>"]
+                            and i != text_field.vocab.stoi["<EOS>"]
+                            and i != text_field.vocab.stoi["<SOS>"]
+                        ]
                     )
                 )
 
@@ -192,17 +206,20 @@ def train_scst(model, dataloader, optim, cider, text_field):
                         dataloader.dataset.vocab.itos[str(int(i))]
                         for i in cap
                         if i != text_field.vocab.stoi["<PAD>"]
+                        and i != text_field.vocab.stoi["<EOS>"]
+                        and i != text_field.vocab.stoi["<SOS>"]
                     ]
                 )
                 for cap in caps_gt
             ]
+
+            caps_gt = [caps_gt[i : i + 5] for i in range(0, len(caps_gt), 5)]
+
             caps_gen, caps_gt = tokenizer_pool.map(
                 evaluation.PTBTokenizer.tokenize, [caps_gen, caps_gt]
             )
             reward = cider.compute_score(caps_gt, caps_gen)[1].astype(np.float32)
-            reward = (
-                torch.from_numpy(reward).to(device).view(images.shape[0], beam_size)
-            )
+            reward = torch.from_numpy(reward).to(device).view(images.shape[0], out_size)
             reward_baseline = torch.mean(reward, -1, keepdim=True)
             loss = -torch.mean(log_probs, -1) * (reward - reward_baseline)
 
@@ -312,20 +329,23 @@ if __name__ == "__main__":
     train_data = CaptioningDataset(
         args.dataset_img_path,
         args.dataset_ann_path,
-        split="train",
         dataset_name=args.dataset,
+        freq_threshold=5,
+        split="train",
     )
     val_data = CaptioningDataset(
         args.dataset_img_path,
         args.dataset_ann_path,
-        split="val",
         dataset_name=args.dataset,
+        freq_threshold=5,
+        split="val",
     )
     test_data = CaptioningDataset(
         args.dataset_img_path,
         args.dataset_ann_path,
-        split="test",
         dataset_name=args.dataset,
+        freq_threshold=5,
+        split="test",
     )
 
     train_dataloader = DataLoader(
@@ -380,6 +400,7 @@ if __name__ == "__main__":
     if args.resume_last or args.resume_best:
         if args.resume_last:
             fname = "saved_models/%s_last.pth" % args.exp_name
+            fname = "saved_models/debug_last.pth"
         else:
             fname = "saved_models/%s_best.pth" % args.exp_name
 

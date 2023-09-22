@@ -17,7 +17,7 @@
                 "--batch_size", "16",
                 "--m", "40",
                 "--head", "4",
-                "--workers", "4"
+                "--workers", "4",
             ],
             "console": "integratedTerminal",
             "justMyCode": true
@@ -37,13 +37,13 @@
                 "--exp_name",
                 "debug-flickr8k",
                 "--batch_size",
-                "16",
+                "4",
                 "--m",
-                "40",
+                "20",
                 "--head",
                 "4",
                 "--workers",
-                "4"
+                "4",
             ],
             "console": "integratedTerminal",
             "justMyCode": true
