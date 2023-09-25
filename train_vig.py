@@ -18,8 +18,11 @@ from tqdm import tqdm
 import evaluation
 from data.captioning_dataset import CaptioningDataset, CocoBatcher
 from evaluation import Cider, PTBTokenizer
-from models.transformer import (MemoryAugmentedEncoder, MeshedDecoder,
-                                ScaledDotProductAttentionMemory)
+from models.transformer import (
+    MemoryAugmentedEncoder,
+    MeshedDecoder,
+    ScaledDotProductAttentionMemory,
+)
 from models.vig_cap import VigCap
 
 
@@ -382,9 +385,9 @@ if __name__ == "__main__":
     print("Dataloaders created")
 
     assert args.vig_size in ["tiny", "small", "base"]
-    assert args.vig_type in ["base", "pyramid"]
+    assert args.vig_type in ["default", "pyramid"]
 
-    if args.vig_type == "base":
+    if args.vig_type == "default":
         d_ins = [192, 320, 640]
         d_in = d_ins[["tiny", "small", "base"].index(args.vig_size)]
     else:
@@ -401,7 +404,9 @@ if __name__ == "__main__":
     decoder = MeshedDecoder(
         len(train_data.vocab), 54, 3, train_data.vocab.stoi["<PAD>"]
     )
-    model = VigCap(train_data.vocab.stoi["<SOS>"], encoder, decoder).to(device)
+    model = VigCap(
+        train_data.vocab.stoi["<SOS>"], encoder, decoder, args.vig_type, args.vig_size
+    ).to(device)
 
     model = nn.DataParallel(model)
     print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")

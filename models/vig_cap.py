@@ -1,13 +1,28 @@
+from typing import Optional
+
 import torch
 from torch import nn
 
-from models.vig.vig import vig_ti_224_gelu
+from models.vig.pyramid_vig import (
+    pvig_b_224_gelu,
+    pvig_m_224_gelu,
+    pvig_s_224_gelu,
+    pvig_ti_224_gelu,
+)
+from models.vig.vig import vig_b_224_gelu, vig_s_224_gelu, vig_ti_224_gelu
 
 from .captioning_model import CaptioningModel
 
 
 class VigCap(CaptioningModel):
-    def __init__(self, bos_idx, encoder, decoder):
+    def __init__(
+        self,
+        bos_idx,
+        encoder,
+        decoder,
+        vig_type: Optional[str] = "default",
+        vig_size: Optional[str] = "tiny",
+    ):
         super(VigCap, self).__init__()
         self.bos_idx = bos_idx
         self.encoder = encoder
@@ -15,7 +30,25 @@ class VigCap(CaptioningModel):
         self.register_state("enc_output", None)
         self.register_state("mask_enc", None)
         self.init_weights()
-        self.vig = vig_ti_224_gelu()
+
+        if vig_type == "default":
+            if vig_size == "base":
+                self.vig = vig_b_224_gelu()
+            elif vig_size == "small":
+                self.vig = vig_s_224_gelu()
+            else:
+                self.vig = vig_ti_224_gelu()
+        elif vig_type == "pyramid":
+            if vig_size == "base":
+                self.vig = pvig_b_224_gelu()
+            elif vig_size == "small":
+                self.vig = pvig_s_224_gelu()
+            elif vig_size == "medium":
+                self.vig = pvig_m_224_gelu()
+            else:
+                self.vig = pvig_ti_224_gelu()
+        else:
+            raise ValueError(f"vig_type {vig_type} not supported")
 
     @property
     def d_model(self):
