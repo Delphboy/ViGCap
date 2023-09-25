@@ -6,11 +6,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from gcn_lib import Grapher, act_layer
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.layers import DropPath
 from timm.models.registry import register_model
 from torch.nn import Sequential as Seq
+
+from models.vig.gcn_lib import Grapher, act_layer
 
 
 def _cfg(url="", **kwargs):
@@ -191,12 +192,15 @@ class DeepGCN(torch.nn.Module):
 
     def forward(self, inputs):
         x = self.stem(inputs) + self.pos_embed
-        B, C, H, W = x.shape
         for i in range(len(self.backbone)):
             x = self.backbone[i](x)
 
-        x = F.adaptive_avg_pool2d(x, 1)
-        return self.prediction(x).squeeze(-1).squeeze(-1)
+        B, C, H, W = x.shape
+        x = x.view(B, C, H * W)
+        return x.permute(0, 2, 1)
+
+        # x = F.adaptive_avg_pool2d(x, 1)  # [B, C, 1, 1]
+        # return self.prediction(x).squeeze(-1).squeeze(-1)  # [B, 1000]
 
 
 @register_model
