@@ -18,6 +18,8 @@
                 "--m", "40",
                 "--head", "4",
                 "--workers", "4",
+                "--vig_type", "default",
+                "--vig_size", "tiny",
             ],
             "console": "integratedTerminal",
             "justMyCode": true
@@ -44,6 +46,10 @@
                 "4",
                 "--workers",
                 "4",
+                "--vig_type",
+                "default",
+                "--vig_size",
+                "tiny",
             ],
             "console": "integratedTerminal",
             "justMyCode": true

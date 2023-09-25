@@ -18,11 +18,8 @@ from tqdm import tqdm
 import evaluation
 from data.captioning_dataset import CaptioningDataset, CocoBatcher
 from evaluation import Cider, PTBTokenizer
-from models.transformer import (
-    MemoryAugmentedEncoder,
-    MeshedDecoder,
-    ScaledDotProductAttentionMemory,
-)
+from models.transformer import (MemoryAugmentedEncoder, MeshedDecoder,
+                                ScaledDotProductAttentionMemory)
 from models.vig_cap import VigCap
 
 
@@ -311,6 +308,18 @@ if __name__ == "__main__":
         default=-1,
         help="Run model on the test set every N epochs",
     )
+    parser.add_argument(
+        "--vig_size",
+        type=str,
+        default="tiny",
+        help="ViG model size [tiny | small | base]",
+    )
+    parser.add_argument(
+        "--vig_type",
+        type=str,
+        default="base",
+        help="ViG model type [base | pyramid]",
+    )
 
     args = parser.parse_args()
 
@@ -372,10 +381,20 @@ if __name__ == "__main__":
 
     print("Dataloaders created")
 
+    assert args.vig_size in ["tiny", "small", "base"]
+    assert args.vig_type in ["base", "pyramid"]
+
+    if args.vig_type == "base":
+        d_ins = [192, 320, 640]
+        d_in = d_ins[["tiny", "small", "base"].index(args.vig_size)]
+    else:
+        d_ins = [384, 640, 1024]
+        d_in = d_ins[["tiny", "small", "base"].index(args.vig_size)]
+
     encoder = MemoryAugmentedEncoder(
         3,
         0,
-        d_in=192,
+        d_in=d_in,
         attention_module=ScaledDotProductAttentionMemory,
         attention_module_kwargs={"m": args.m},
     )
