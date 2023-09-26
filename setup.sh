@@ -4,6 +4,8 @@ USERNAME=eey362
 SCRATCH_DIR=/data/scratch/$USERNAME/
 DATASET_DIR=$SCRATCH_DIR/datasets/coco
 
+ml load python
+
 # Setup repo
 echo "Setting up repo"
 
