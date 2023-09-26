@@ -169,3 +169,4 @@ tensorboard_logs/
 saved_models/
 *_talk.json
 karpathy_splits/
+logs/

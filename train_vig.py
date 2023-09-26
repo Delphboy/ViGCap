@@ -320,8 +320,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--vig_type",
         type=str,
-        default="base",
-        help="ViG model type [base | pyramid]",
+        default="default",
+        help="ViG model type [default | pyramid]",
     )
 
     args = parser.parse_args()
