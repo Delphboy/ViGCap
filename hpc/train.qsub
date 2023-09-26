@@ -21,7 +21,7 @@ module load java/1.8.0_382-openjdk
 source .venv/bin/activate
 
 # Run!
-python3 train_vig.py --exp_name "ViGCap-scst" \
+python3 train_vig.py --exp_name "ViGCap-scst-${vigType}-${vigSize}" \
                     --dataset "coco" \
                     --dataset_img_path "/data/scratch/eey362/datasets/coco" \
                     --dataset_ann_path "/data/scratch/eey362/datasets/coco/dataset_coco.json" \
@@ -30,3 +30,5 @@ python3 train_vig.py --exp_name "ViGCap-scst" \
                     --workers 4 \
                     --batch_size 32 \
                     --max_epochs 20 \
+                    --vig_type ${vigType} \
+                    --vig_size ${vigSize}
