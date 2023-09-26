@@ -18,21 +18,23 @@ echo "Setting up python environment"
 python3 -m venv .venv
 source .venv/bin/activate
 
-python3 -m pip install pycocotools
-python3 -m pip install spacy
-python3 -m pip install tqdm
-python3 -m pip install nltk
-python3 -m pip install mosestokenizer
-python3 -m pip install revtok
-python3 -m pip install h5py
-python3 -m pip install timm
-python3 -m pip install tensorboard
+python3 -m pip install -r requirements.txt
 
-python3 -m pip uninstall -y urllib3
-python3 -m pip install urllib3==1.26.6
-python -m spacy download en
+# python3 -m pip install pycocotools
+# python3 -m pip install spacy
+# python3 -m pip install tqdm
+# python3 -m pip install nltk
+# python3 -m pip install mosestokenizer
+# python3 -m pip install revtok
+# python3 -m pip install h5py
+# python3 -m pip install timm
+# python3 -m pip install tensorboard
 
-python3 -m pip install torch==1.12.1+cu116 torchvision==0.13.1+cu116 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu116
+# python3 -m pip uninstall -y urllib3
+# python3 -m pip install urllib3==1.26.6
+# python -m spacy download en
+
+# python3 -m pip install torch==1.12.1+cu116 torchvision==0.13.1+cu116 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu116
 
 # Use sed to replace the string "eey362" with your $USERNAME in hpc/train.qsub
 sed -i "s/eey362/$USERNAME/g" hpc/train.qsub
