@@ -59,7 +59,8 @@ class VigCap(CaptioningModel):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, images, seq, *args):
+    @torch.jit.export
+    def forward(self, images, seq):
         # Get a set of image features from ViG
         input = self.vig(images)
 
@@ -73,6 +74,7 @@ class VigCap(CaptioningModel):
     def init_state(self, b_s, device):
         return [torch.zeros((b_s, 0), dtype=torch.long, device=device), None, None]
 
+    @torch.jit.ignore
     def step(self, t, prev_output, visual, seq, mode="teacher_forcing", **kwargs):
         it = None
         if mode == "teacher_forcing":
@@ -92,21 +94,3 @@ class VigCap(CaptioningModel):
                 it = prev_output
 
         return self.decoder(it, self.enc_output, self.mask_enc)
-
-
-# class TransformerEnsemble(CaptioningModel):
-#     def __init__(self, model: Transformer, weight_files):
-#         super(TransformerEnsemble, self).__init__()
-#         self.n = len(weight_files)
-#         self.models = ModuleList([copy.deepcopy(model) for _ in range(self.n)])
-#         for i in range(self.n):
-#             state_dict_i = torch.load(weight_files[i])["state_dict"]
-#             self.models[i].load_state_dict(state_dict_i)
-
-#     def step(self, t, prev_output, visual, seq, mode="teacher_forcing", **kwargs):
-#         out_ensemble = []
-#         for i in range(self.n):
-#             out_i = self.models[i].step(t, prev_output, visual, seq, mode, **kwargs)
-#             out_ensemble.append(out_i.unsqueeze(0))
-
-#         return torch.mean(torch.cat(out_ensemble, 0), dim=0)

@@ -59,6 +59,7 @@ class MeshedDecoderLayer(Module):
         nn.init.constant_(self.fc_alpha2.bias, 0)
         nn.init.constant_(self.fc_alpha3.bias, 0)
 
+    @torch.jit.export
     def forward(self, input, enc_output, mask_pad, mask_self_att, mask_enc_att):
         self_att = self.self_att(input, input, input, mask_self_att)
         self_att = self_att * mask_pad
@@ -80,9 +81,9 @@ class MeshedDecoderLayer(Module):
         alpha2 = torch.sigmoid(self.fc_alpha2(torch.cat([self_att, enc_att2], -1)))
         alpha3 = torch.sigmoid(self.fc_alpha3(torch.cat([self_att, enc_att3], -1)))
 
-        enc_att = (enc_att1 * alpha1 + enc_att2 * alpha2 + enc_att3 * alpha3) / np.sqrt(
-            3
-        )
+        enc_att = (
+            enc_att1 * alpha1 + enc_att2 * alpha2 + enc_att3 * alpha3
+        ) / torch.sqrt(torch.tensor(3, device=enc_att1.device, dtype=torch.float32))
         enc_att = enc_att * mask_pad
 
         ff = self.pwff(enc_att)
@@ -141,6 +142,7 @@ class MeshedDecoder(Module):
         )
         self.register_state("running_seq", torch.zeros((1,)).long())
 
+    @torch.jit.export
     def forward(self, sequence, encoder_output, mask_encoder):
         # input (b_s, seq_len)
         b_s, seq_len = sequence.shape[:2]

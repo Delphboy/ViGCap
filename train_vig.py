@@ -1,29 +1,19 @@
 import argparse
-import itertools
 import multiprocessing
 import os
 import random
-import sys
 from shutil import copyfile
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.optim import Adam
-from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 import evaluation
-from data.captioning_dataset import CaptioningDataset, CocoBatcher
+import factories
 from evaluation import Cider, PTBTokenizer
-from models.transformer import (
-    MemoryAugmentedEncoder,
-    MeshedDecoder,
-    ScaledDotProductAttentionMemory,
-)
-from models.vig_cap import VigCap
 
 
 def evaluate_loss(model, dataloader, loss_fn):
@@ -105,9 +95,10 @@ def evaluate_metrics(model, dataloader, text_field):
 
             caps_gt = [caps_gt[i : i + 5] for i in range(0, len(caps_gt), 5)]
 
-            print(caps_gen)
-            print(caps_gt)
-            print()
+            if args.debug:
+                print(caps_gen)
+                print(caps_gt)
+                print()
 
             for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
                 gen["%d_%d" % (it, i)] = [
@@ -135,15 +126,10 @@ def train_xe(model, dataloader, optim):
 
             out = model(images, captions)
 
-            optim.zero_grad()
+            optim.zero_grad(set_to_none=True)
             captions_gt = captions[:, 1:].contiguous()
             out = out[:, :-1].contiguous()
 
-            if it % 100 == 0:
-                cap = torch.argmax(F.softmax(out[0, :, :], dim=1), dim=1)
-                print(
-                    " ".join([dataloader.dataset.vocab.itos[str(int(i))] for i in cap])
-                )
             loss = loss_fn(
                 out.view(-1, len(dataloader.dataset.vocab)), captions_gt.view(-1)
             )
@@ -323,6 +309,11 @@ if __name__ == "__main__":
         default="default",
         help="ViG model type [default | pyramid]",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Debug mode: enable pytorch debugging APIs",
+    )
 
     args = parser.parse_args()
 
@@ -331,52 +322,35 @@ if __name__ == "__main__":
         torch.manual_seed(args.seed)
         np.random.seed(args.seed)
 
+    if not args.debug:
+        # disable debugging APIs
+        # any PyTorch APIs are intended for debugging and should be disabled for regular
+        # training runs:
+        # ie)
+        # anomaly detection: torch.autograd.detect_anomaly or torch.autograd.set_detect_anomaly(True)
+        # profiler related: torch.autograd.profiler.emit_nvtx, torch.autograd.profiler.profile
+        # autograd gradcheck: torch.autograd.gradcheck or torch.autograd.gradgradcheck
+
+        torch.autograd.set_detect_anomaly(False)
+        torch.autograd.profiler.emit_nvtx(False)
+        torch.autograd.profiler.profile(False)
+    # TODO: disable gradcheck
+    # https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#disable-debugging-apis
+
     print("ViGCap Training")
 
     writer = SummaryWriter(log_dir=os.path.join(args.logs_folder, args.exp_name))
 
     # Load the data
-    talk_file_location = f"data/{args.dataset}_talk.json"
-
-    train_data = CaptioningDataset(
-        args.dataset_img_path,
-        args.dataset_ann_path,
-        dataset_name=args.dataset,
-        freq_threshold=5,
-        split="train",
+    train_data, val_data, test_data = factories.get_training_data(args)
+    train_dataloader = factories.get_dataloader(
+        train_data, args.dataset, args.batch_size, True
     )
-    val_data = CaptioningDataset(
-        args.dataset_img_path,
-        args.dataset_ann_path,
-        dataset_name=args.dataset,
-        freq_threshold=5,
-        split="val",
+    val_dataloader = factories.get_dataloader(
+        val_data, args.dataset, args.batch_size, False
     )
-    test_data = CaptioningDataset(
-        args.dataset_img_path,
-        args.dataset_ann_path,
-        dataset_name=args.dataset,
-        freq_threshold=5,
-        split="test",
-    )
-
-    train_dataloader = DataLoader(
-        train_data,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=CocoBatcher(talk_file_location),
-    )
-    val_dataloader = DataLoader(
-        val_data,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=CocoBatcher(talk_file_location),
-    )
-    test_dataloader = DataLoader(
-        test_data,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=CocoBatcher(talk_file_location),
+    test_dataloader = factories.get_dataloader(
+        test_data, args.dataset, args.batch_size, False
     )
 
     ref_caps_train = list(train_data.captions)
@@ -384,38 +358,15 @@ if __name__ == "__main__":
 
     print("Dataloaders created")
 
-    assert args.vig_size in ["tiny", "small", "base"]
-    assert args.vig_type in ["default", "pyramid"]
-
-    if args.vig_type == "default":
-        d_ins = [192, 320, 640]
-        d_in = d_ins[["tiny", "small", "base"].index(args.vig_size)]
-    else:
-        d_ins = [384, 640, 1024]
-        d_in = d_ins[["tiny", "small", "base"].index(args.vig_size)]
-
-    encoder = MemoryAugmentedEncoder(
-        3,
-        0,
-        d_in=d_in,
-        attention_module=ScaledDotProductAttentionMemory,
-        attention_module_kwargs={"m": args.m},
-    )
-    decoder = MeshedDecoder(
-        len(train_data.vocab), 54, 3, train_data.vocab.stoi["<PAD>"]
-    )
-    model = VigCap(
-        train_data.vocab.stoi["<SOS>"], encoder, decoder, args.vig_type, args.vig_size
-    ).to(device)
-
+    model = factories.get_model(args, train_data.vocab).to(device)
     model = nn.DataParallel(model)
-    print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
 
     # Initial conditions
     optim = Adam(model.parameters(), lr=args.learning_rate)
     scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=0.8)
     # loss_fn = nn.NLLLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
     loss_fn = nn.CrossEntropyLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
+
     use_rl = False
     best_cider = 0.0
     patience = 0
@@ -448,10 +399,14 @@ if __name__ == "__main__":
 
     print("Training starts")
     for epoch in range(start_epoch, args.max_epochs):
+        use_rl = epoch == 2
         if not use_rl:
             train_loss = train_xe(model, train_dataloader, optim)
             writer.add_scalar("data/train_loss", train_loss, epoch)
         else:
+            train_dataloader = factories.get_dataloader(
+                train_data, args.dataset, args.batch_size // 32, True
+            )
             train_loss, reward, reward_baseline = train_scst(
                 model, train_dataloader, optim, cider_train, train_data
             )

@@ -35,6 +35,7 @@ class EncoderLayer(nn.Module):
             d_model, d_ff, dropout, identity_map_reordering=identity_map_reordering
         )
 
+    @torch.jit.export
     def forward(
         self, queries, keys, values, attention_mask=None, attention_weights=None
     ):
@@ -79,6 +80,7 @@ class MultiLevelEncoder(nn.Module):
         )
         self.padding_idx = padding_idx
 
+    @torch.jit.export
     def forward(self, input, attention_weights=None):
         # input (b_s, seq_len, d_in)
         attention_mask = (
@@ -102,6 +104,7 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         self.dropout = nn.Dropout(p=self.dropout)
         self.layer_norm = nn.LayerNorm(self.d_model)
 
+    @torch.jit.export
     def forward(self, input, attention_weights=None):
         out = F.relu(self.fc(input))
         out = self.dropout(out)

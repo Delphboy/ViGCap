@@ -40,6 +40,7 @@ class ScaledDotProductAttention(nn.Module):
         nn.init.constant_(self.fc_v.bias, 0)
         nn.init.constant_(self.fc_o.bias, 0)
 
+    @torch.jit.export
     def forward(
         self, queries, keys, values, attention_mask=None, attention_weights=None
     ):
@@ -64,13 +65,15 @@ class ScaledDotProductAttention(nn.Module):
             self.fc_v(values).view(b_s, nk, self.h, self.d_v).permute(0, 2, 1, 3)
         )  # (b_s, h, nk, d_v)
 
-        att = torch.matmul(q, k) / np.sqrt(self.d_k)  # (b_s, h, nq, nk)
+        att = torch.matmul(q, k) / torch.sqrt(
+            torch.tensor(self.d_k, device=q.device)
+        )  # (b_s, h, nq, nk)
         if attention_weights is not None:
             att = att * attention_weights
         if attention_mask is not None:
             # FIXME: masked_fill_ received a mask with dtype torch.uint8, this behavior
             # is now deprecated,please use a mask with dtype torch.bool instead
-            att = att.masked_fill(attention_mask.type(torch.bool), -np.inf)
+            att = att.masked_fill(attention_mask.type(torch.bool), -torch.inf)
         att = torch.softmax(att, -1)
         out = (
             torch.matmul(att, v)
@@ -126,6 +129,7 @@ class ScaledDotProductAttentionMemory(nn.Module):
     # At the time queries, keys, and values are passed to this function, they
     # are layer_normalised(out) where out is MemoryAugmentedEncoder(input) and input
     # is the input to the encoder.
+    @torch.jit.export
     def forward(
         self, queries, keys, values, attention_mask=None, attention_weights=None
     ):
@@ -141,8 +145,12 @@ class ScaledDotProductAttentionMemory(nn.Module):
         b_s, nq = queries.shape[:2]
         nk = keys.shape[1]
 
-        m_k = np.sqrt(self.d_k) * self.m_k.expand(b_s, self.m, self.h * self.d_k)
-        m_v = np.sqrt(self.m) * self.m_v.expand(b_s, self.m, self.h * self.d_v)
+        m_k = torch.sqrt(
+            torch.tensor(self.d_k, device=self.m_k.device)
+        ) * self.m_k.expand(b_s, self.m, self.h * self.d_k)
+        m_v = torch.sqrt(
+            torch.tensor(self.m, device=self.m_v.device)
+        ) * self.m_v.expand(b_s, self.m, self.h * self.d_v)
 
         q = (
             self.fc_q(queries).view(b_s, nq, self.h, self.d_k).permute(0, 2, 1, 3)
@@ -158,13 +166,17 @@ class ScaledDotProductAttentionMemory(nn.Module):
             .permute(0, 2, 1, 3)
         )  # (b_s, h, nk, d_v)
 
-        att = torch.matmul(q, k) / np.sqrt(self.d_k)  # (b_s, h, nq, nk)
+        att = torch.matmul(q, k) / torch.sqrt(
+            torch.tensor(self.d_k, device=q.device)
+        )  # (b_s, h, nq, nk)
         if attention_weights is not None:
             att = torch.cat(
                 [att[:, :, :, :nk] * attention_weights, att[:, :, :, nk:]], -1
             )
         if attention_mask is not None:
-            att[:, :, :, :nk] = att[:, :, :, :nk].masked_fill(attention_mask, -np.inf)
+            att[:, :, :, :nk] = att[:, :, :, :nk].masked_fill(
+                attention_mask, -torch.inf
+            )
         att = torch.softmax(att, -1)
         out = (
             torch.matmul(att, v)
@@ -216,6 +228,7 @@ class MultiHeadAttention(Module):
             self.register_state("running_keys", torch.zeros((0, d_model)))
             self.register_state("running_values", torch.zeros((0, d_model)))
 
+    @torch.jit.export
     def forward(
         self, queries, keys, values, attention_mask=None, attention_weights=None
     ):

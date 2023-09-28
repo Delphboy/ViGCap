@@ -177,7 +177,9 @@ class BeamSearch(object):
             )
 
         selected_idx, selected_logprob = self.select(t, candidate_logprob, **kwargs)
-        selected_beam = selected_idx // candidate_logprob.shape[-1]
+        selected_beam = torch.div(
+            selected_idx, candidate_logprob.shape[-1], rounding_mode="trunc"
+        )
         selected_words = selected_idx - selected_beam * candidate_logprob.shape[-1]
 
         self.model.apply_to_states(self._expand_state(selected_beam, cur_beam_size))
