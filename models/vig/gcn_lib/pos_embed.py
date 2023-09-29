@@ -24,9 +24,7 @@ def get_2d_relative_pos_embed(embed_dim, grid_size):
     pos_embed: [grid_size*grid_size, grid_size*grid_size]
     """
     pos_embed = get_2d_sincos_pos_embed(embed_dim, grid_size)
-    relative_pos = (
-        2 * torch.matmul(pos_embed, pos_embed.transpose()) / pos_embed.shape[1]
-    )
+    relative_pos = 2 * torch.matmul(pos_embed, pos_embed.T) / pos_embed.shape[1]
     return relative_pos
 
 
