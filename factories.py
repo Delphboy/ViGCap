@@ -46,7 +46,7 @@ def get_dataloader(
     shuffle: bool = False,
 ) -> DataLoader:
     talk_file_location = f"data/{dataset_name}_talk.json"
-    num_workers = multiprocessing.cpu_count()
+    num_workers = 4
 
     return DataLoader(
         dataset,
