@@ -1,5 +1,5 @@
 import multiprocessing
-from typing import Optional
+from typing import Optional, Tuple
 
 from torch.utils.data import DataLoader
 
@@ -14,7 +14,7 @@ from models.vig_cap import VigCap
 
 def get_training_data(
     args,
-) -> tuple[CaptioningDataset, CaptioningDataset, CaptioningDataset]:
+) -> Tuple[CaptioningDataset, CaptioningDataset, CaptioningDataset]:
     train_data = CaptioningDataset(
         args.dataset_img_path,
         args.dataset_ann_path,

@@ -2,7 +2,7 @@
 
 
 declare -a vigTypes=("default" "pyramid")
-declare -a vigSizes=("base" "small", "base")
+declare -a vigSizes=("tiny" "small" "base")
 
 for vigType in "${vigTypes[@]}"
 do

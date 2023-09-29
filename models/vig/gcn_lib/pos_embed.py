@@ -82,5 +82,5 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     emb_sin = torch.sin(out)  # (M, D/2)
     emb_cos = torch.cos(out)  # (M, D/2)
 
-    emb = torch.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
+    emb = torch.concat([emb_sin, emb_cos], axis=1)  # (M, D)
     return emb
