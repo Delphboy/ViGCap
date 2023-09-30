@@ -399,7 +399,6 @@ if __name__ == "__main__":
 
     print("Training starts")
     for epoch in range(start_epoch, args.max_epochs):
-        use_rl = epoch == 2
         if not use_rl:
             train_loss = train_xe(model, train_dataloader, optim)
             writer.add_scalar("data/train_loss", train_loss, epoch)
