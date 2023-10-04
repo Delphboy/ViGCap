@@ -73,10 +73,11 @@ def get_model(args: any, vocab: Vocab) -> VigCap:
         3,
         0,
         d_in=d_in,
+        dropout=args.dropout,
         attention_module=ScaledDotProductAttentionMemory,
         attention_module_kwargs={"m": args.m},
     )
-    decoder = MeshedDecoder(len(vocab), 54, 3, vocab.stoi["<PAD>"])
-    model = VigCap(vocab.stoi["<SOS>"], encoder, decoder, args.vig_type, args.vig_size)
+    decoder = MeshedDecoder(len(vocab), 54, 3, vocab.stoi["<PAD>"], dropout=args.dropout)
+    model = VigCap(vocab.stoi["<SOS>"], encoder, decoder, args.dropout, args.vig_type, args.vig_size, args.n_blocks)
     print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
     return model
