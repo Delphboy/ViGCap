@@ -171,3 +171,4 @@ saved_models/
 karpathy_splits/
 logs/
 evaluation/tmp*
+evaluation/meteor/meteor.tgz

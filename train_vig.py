@@ -265,6 +265,12 @@ if __name__ == "__main__":
         "--patience", type=int, default=5, help="Early stopping patience | -1 = disable"
     )
     parser.add_argument(
+        "--dropout", type=float, default=0.5, help="Dropout probability"
+    )
+    parser.add_argument(
+        "--n_blocks", type=int, default=6, help="Number of encoder blocks"
+    )
+    parser.add_argument(
         "--workers", type=int, default=0, help="Number of dataloader workers"
     )
     parser.add_argument(

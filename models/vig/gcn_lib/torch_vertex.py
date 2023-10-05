@@ -20,6 +20,7 @@ class MRConv2d(nn.Module):
         super(MRConv2d, self).__init__()
         self.nn = BasicConv([in_channels * 2, out_channels], act, norm, bias)
 
+    @torch.jit.export
     def forward(self, x, edge_index, y=None):
         x_i = batched_index_select(x, edge_index[1])
         if y is not None:
@@ -41,6 +42,7 @@ class EdgeConv2d(nn.Module):
         super(EdgeConv2d, self).__init__()
         self.nn = BasicConv([in_channels * 2, out_channels], act, norm, bias)
 
+    @torch.jit.export
     def forward(self, x, edge_index, y=None):
         x_i = batched_index_select(x, edge_index[1])
         if y is not None:
@@ -63,6 +65,7 @@ class GraphSAGE(nn.Module):
         self.nn1 = BasicConv([in_channels, in_channels], act, norm, bias)
         self.nn2 = BasicConv([in_channels * 2, out_channels], act, norm, bias)
 
+    @torch.jit.export
     def forward(self, x, edge_index, y=None):
         if y is not None:
             x_j = batched_index_select(y, edge_index[0])
@@ -83,6 +86,7 @@ class GINConv2d(nn.Module):
         eps_init = 0.0
         self.eps = nn.Parameter(torch.Tensor([eps_init]))
 
+    @torch.jit.export
     def forward(self, x, edge_index, y=None):
         if y is not None:
             x_j = batched_index_select(y, edge_index[0])
@@ -160,6 +164,7 @@ class GraphConv2d(nn.Module):
         else:
             raise NotImplementedError("conv:{} is not supported".format(conv))
 
+    @torch.jit.export
     def forward(self, x, edge_index, y=None):
         return self.gconv(x, edge_index, y)
 
@@ -193,6 +198,7 @@ class DyGraphConv2d(GraphConv2d):
             kernel_size, dilation, stochastic, epsilon
         )
 
+    @torch.jit.export
     def forward(self, x, relative_pos=None):
         B, C, H, W = x.shape
         y = None
@@ -282,6 +288,7 @@ class Grapher(nn.Module):
                 relative_pos.unsqueeze(0), size=(N, N_reduced), mode="bicubic"
             ).squeeze(0)
 
+    @torch.jit.export
     def forward(self, x):
         _tmp = x  # [B, C, H, W]
         x = self.fc1(x)

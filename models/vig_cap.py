@@ -20,8 +20,10 @@ class VigCap(CaptioningModel):
         bos_idx,
         encoder,
         decoder,
+        dropout:Optional[float]=0.5,
         vig_type: Optional[str] = "default",
         vig_size: Optional[str] = "tiny",
+        n_blocks: Optional[int] = 16,
     ):
         super(VigCap, self).__init__()
         self.bos_idx = bos_idx
@@ -30,23 +32,24 @@ class VigCap(CaptioningModel):
         self.register_state("enc_output", None)
         self.register_state("mask_enc", None)
         self.init_weights()
+        self.dropout = nn.Dropout(dropout)
 
         if vig_type == "default":
             if vig_size == "base":
-                self.vig = vig_b_224_gelu()
+                self.vig = vig_b_224_gelu(drop_rate=dropout, n_blocks=n_blocks)
             elif vig_size == "small":
-                self.vig = vig_s_224_gelu()
+                self.vig = vig_s_224_gelu(drop_rate=dropout, n_blocks=n_blocks)
             else:
-                self.vig = vig_ti_224_gelu()
+                self.vig = vig_ti_224_gelu(drop_rate=dropout, n_blocks=n_blocks)
         elif vig_type == "pyramid":
             if vig_size == "base":
-                self.vig = pvig_b_224_gelu()
+                self.vig = pvig_b_224_gelu(drop_rate=dropout)
             elif vig_size == "small":
-                self.vig = pvig_s_224_gelu()
+                self.vig = pvig_s_224_gelu(drop_rate=dropout)
             elif vig_size == "medium":
-                self.vig = pvig_m_224_gelu()
+                self.vig = pvig_m_224_gelu(drop_rate=dropout)
             else:
-                self.vig = pvig_ti_224_gelu()
+                self.vig = pvig_ti_224_gelu(drop_rate=dropout)
         else:
             raise ValueError(f"vig_type {vig_type} not supported")
 
@@ -63,9 +66,11 @@ class VigCap(CaptioningModel):
     def forward(self, images, seq):
         # Get a set of image features from ViG
         input = self.vig(images)
+        # input = self.dropout(input)
 
         # Encode the image features
         enc_output, mask_enc = self.encoder(input)
+        # enc_output = self.dropout(enc_output)
 
         # Meshed decoder
         dec_output = self.decoder(seq, enc_output, mask_enc)

@@ -27,7 +27,7 @@ from models.transformer import (
 )
 
 
-def evaluate_loss(model, dataloader, loss_fn):
+def evaluate_loss(model, dataloader, loss_fn, text_field):
     # Validation loss
     model.eval()
     running_loss = 0.0
@@ -40,9 +40,7 @@ def evaluate_loss(model, dataloader, loss_fn):
                 out = model(detections, captions)
                 captions = captions[:, 1:].contiguous()
                 out = out[:, :-1].contiguous()
-                loss = loss_fn(
-                    out.view(-1, len(dataloader.dataset.vocab)), captions.view(-1)
-                )
+                loss = loss_fn(out.view(-1, len(text_field.vocab)), captions.view(-1))
                 this_loss = loss.item()
                 running_loss += this_loss
 
@@ -65,14 +63,12 @@ def evaluate_metrics(model, dataloader, text_field):
         for it, (images, caps_gt) in enumerate(iter(dataloader)):
             images = images.to(device)
             with torch.no_grad():
-                # TODO: Remove hard-coded max length. Use --flag
-                # TODO: Remove hard-coded beam size. Use --flag
                 out, _ = model.module.beam_search(
                     images, 20, text_field.vocab.stoi["<eos>"], 5, out_size=1
                 )
             caps_gen = text_field.decode(out, join_words=False)
             for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
-                gen_i = " ".join([k for k, _ in itertools.groupby(gen_i)])
+                gen_i = " ".join([k for k, g in itertools.groupby(gen_i)])
                 gen["%d_%d" % (it, i)] = [
                     gen_i,
                 ]
@@ -421,7 +417,7 @@ if __name__ == "__main__":
             writer.add_scalar("data/reward_baseline", reward_baseline, epoch)
 
         # Validation loss
-        val_loss = evaluate_loss(model, dataloader_val, loss_fn)
+        val_loss = evaluate_loss(model, dataloader_val, loss_fn, text_field)
         writer.add_scalar("data/val_loss", val_loss, epoch)
 
         # Validation scores
