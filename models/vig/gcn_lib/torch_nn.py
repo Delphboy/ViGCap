@@ -24,6 +24,10 @@ def act_layer(act, inplace=False, neg_slope=0.2, n_prelu=1):
         layer = nn.GELU()
     elif act == "hswish":
         layer = nn.Hardswish(inplace)
+    elif act == "sigmoid":
+        layer = nn.Sigmoid(inplace)
+    elif act == "tanh":
+        layer = nn.Tanh()
     else:
         raise NotImplementedError("activation layer [%s] is not found" % act)
     return layer
