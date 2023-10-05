@@ -92,6 +92,50 @@ class GINConv2d(nn.Module):
         return self.nn((1 + self.eps) * x + x_j)
 
 
+class GCNKipf2d(nn.Module):
+    """
+    GCN from Kipf et al.: https://arxiv.org/abs/1609.02907
+    """
+
+    def __init__(self, in_channels, out_channels, act="relu", norm=None, bias=True):
+        super(GCNKipf2d, self).__init__()
+        self.nn = BasicConv([in_channels, out_channels], act, norm, bias)
+
+    def forward(self, x, edge_index, y=None):
+        if y is not None:
+            x_j = batched_index_select(y, edge_index[0])
+        else:
+            x_j = batched_index_select(x, edge_index[0])
+        x_j = torch.mean(x_j, -1, keepdim=True)
+        return self.nn(x_j)
+
+
+class SagPool(nn.Module):
+    """
+    SAG Pooling (Paper: https://arxiv.org/abs/1904.08082)
+    """
+
+    def __init__(
+        self, in_channels, out_channels, act="relu", norm=None, bias=True, ratio=0.25
+    ):
+        super(SagPool, self).__init__()
+        self.ratio = ratio
+        self.nn = BasicConv([in_channels, out_channels], act, norm, bias)
+
+    def forward(self, x, edge_index=None, y=None):
+        if y is not None:
+            x_j = batched_index_select(y, edge_index[0])
+        else:
+            x_j = batched_index_select(x, edge_index[0])
+
+        x_j = torch.mean(x_j, -1, keepdim=True)
+        score = self.nn(x_j).squeeze(-1)
+        _, index = torch.topk(score, int(x.shape[2] * self.ratio), dim=-1)
+
+        x = torch.gather(x, 2, index.unsqueeze(-1).expand(-1, -1, -1, x.shape[-1]))
+        return x
+
+
 class GraphConv2d(nn.Module):
     """
     Static graph convolution layer
@@ -109,6 +153,10 @@ class GraphConv2d(nn.Module):
             self.gconv = GraphSAGE(in_channels, out_channels, act, norm, bias)
         elif conv == "gin":
             self.gconv = GINConv2d(in_channels, out_channels, act, norm, bias)
+        elif conv == "kipf":
+            self.gconv = GCNKipf2d(in_channels, out_channels, act, norm, bias)
+        elif conv == "sagpool":
+            self.gconv = SagPool(in_channels, out_channels, act, norm, bias)
         else:
             raise NotImplementedError("conv:{} is not supported".format(conv))
 
