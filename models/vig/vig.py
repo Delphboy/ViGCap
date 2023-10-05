@@ -213,10 +213,11 @@ def vig_ti_224_gelu(pretrained=False, **kwargs):
             drop_path_rate=0.0,
             drop_rate=0.0,
             num_knn=9,
+            gnn_type="mr",
             **kwargs
         ):
             self.k = num_knn  # neighbor num (default:9)
-            self.conv = "mr"  # graph conv layer {edge, mr}
+            self.conv = gnn_type  # graph conv layer {edge, mr}
             self.act = "gelu"  # activation layer {relu, prelu, leakyrelu, gelu, hswish}
             self.norm = "batch"  # batch or instance normalization {batch, instance}
             self.bias = True  # bias of conv layer True or False
@@ -244,10 +245,11 @@ def vig_s_224_gelu(pretrained=False, **kwargs):
             drop_path_rate=0.0,
             drop_rate=0.0,
             num_knn=9,
+            gnn_type="mr",
             **kwargs
         ):
             self.k = num_knn  # neighbor num (default:9)
-            self.conv = "mr"  # graph conv layer {edge, mr}
+            self.conv = gnn_type  # graph conv layer {edge, mr}
             self.act = "gelu"  # activation layer {relu, prelu, leakyrelu, gelu, hswish}
             self.norm = "batch"  # batch or instance normalization {batch, instance}
             self.bias = True  # bias of conv layer True or False
@@ -275,10 +277,11 @@ def vig_b_224_gelu(pretrained=False, **kwargs):
             drop_path_rate=0.0,
             drop_rate=0.0,
             num_knn=9,
+            gnn_type="mr",
             **kwargs
         ):
             self.k = num_knn  # neighbor num (default:9)
-            self.conv = "mr"  # graph conv layer {edge, mr}
+            self.conv = gnn_type  # graph conv layer {edge, mr}
             self.act = "gelu"  # activation layer {relu, prelu, leakyrelu, gelu, hswish}
             self.norm = "batch"  # batch or instance normalization {batch, instance}
             self.bias = True  # bias of conv layer True or False

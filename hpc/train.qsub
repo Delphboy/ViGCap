@@ -1,8 +1,8 @@
 #!/bin/bash
-#$ -l h_rt=240:0:0
+#$ -l h_rt=24:0:0
 #$ -l h_vmem=11G
-#$ -pe smp 32
-#$ -l gpu=4
+#$ -pe smp 8
+#$ -l gpu=1
 #$ -l gpu_type=ampere
 #$ -wd /data/home/eey362/ViGCap
 #$ -j y
@@ -20,10 +20,12 @@ module load java/1.8.0_382-openjdk
 # Activate virtual environment
 source .venv/bin/activate
 
+k=$(echo "$k" | bc)
+
 # Run!
-python3 train_vig.py --exp_name "ViGCap-scst-${vigType}-${vigSize}" \
+python3 train_vig.py --exp_name "Vigcap_${vigType}_${vigSize}_${k}_${gnnType}" \
                     --dataset "coco" \
-                    --dataset_img_path "/data/scratch/eey362/datasets/coco" \
+                    --dataset_img_path "/data/PublicDataSets/Coco-2014/" \
                     --dataset_ann_path "/data/scratch/eey362/datasets/coco/dataset_coco.json" \
                     --m 40 \
                     --head 8 \
@@ -31,4 +33,17 @@ python3 train_vig.py --exp_name "ViGCap-scst-${vigType}-${vigSize}" \
                     --batch_size 32 \
                     --max_epochs 20 \
                     --vig_type ${vigType} \
-                    --vig_size ${vigSize}
+                    --vig_size ${vigSize} \
+                    --num_knn ${k} \
+                    --gnn_type ${gnnType} \
+                    --patience -1 \
+
+# python3 train.py --exp_name "vanillaM2" \
+#                 --batch_size 128 \
+#                 --max_epochs 20 \
+#                 --patience -1 \
+#                 --workers 4 \
+#                 --m 40 \
+#                 --head 8 \
+#                 --features_path "/data/scratch/eey362/meshed-data/coco_detections.hdf5" \
+#                 --annotation_folder "/data/home/eey362/ViGCap/data/annotations" \

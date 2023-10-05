@@ -60,7 +60,7 @@ def evaluate_metrics(model, dataloader, text_field):
                 # TODO: Remove hard-coded max length. Use --flag
                 # TODO: Remove hard-coded beam size. Use --flag
                 out, _ = model.module.beam_search(
-                    model.module.vig(images),
+                    images,
                     20,
                     text_field.vocab.stoi["<EOS>"],
                     5,
@@ -314,6 +314,10 @@ if __name__ == "__main__":
         type=str,
         default="default",
         help="ViG model type [default | pyramid]",
+    )
+    parser.add_argument("--num_knn", type=int, default=9, help="k for kNN")
+    parser.add_argument(
+        "--gnn_type", type=str, default="mr", help="GNN type [edge|mr|sage|gin]"
     )
     parser.add_argument(
         "--debug",

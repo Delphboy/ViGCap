@@ -20,10 +20,12 @@ class VigCap(CaptioningModel):
         bos_idx,
         encoder,
         decoder,
-        dropout:Optional[float]=0.5,
+        dropout: Optional[float] = 0.5,
         vig_type: Optional[str] = "default",
         vig_size: Optional[str] = "tiny",
         n_blocks: Optional[int] = 16,
+        num_knn: Optional[int] = 9,
+        gnn_type: Optional[str] = "mr",
     ):
         super(VigCap, self).__init__()
         self.bos_idx = bos_idx
@@ -36,11 +38,26 @@ class VigCap(CaptioningModel):
 
         if vig_type == "default":
             if vig_size == "base":
-                self.vig = vig_b_224_gelu(drop_rate=dropout, n_blocks=n_blocks)
+                self.vig = vig_b_224_gelu(
+                    drop_rate=dropout,
+                    n_blocks=n_blocks,
+                    num_knn=num_knn,
+                    gnn_type=gnn_type,
+                )
             elif vig_size == "small":
-                self.vig = vig_s_224_gelu(drop_rate=dropout, n_blocks=n_blocks)
+                self.vig = vig_s_224_gelu(
+                    drop_rate=dropout,
+                    n_blocks=n_blocks,
+                    num_knn=num_knn,
+                    gnn_type=gnn_type,
+                )
             else:
-                self.vig = vig_ti_224_gelu(drop_rate=dropout, n_blocks=n_blocks)
+                self.vig = vig_ti_224_gelu(
+                    drop_rate=dropout,
+                    n_blocks=n_blocks,
+                    num_knn=num_knn,
+                    gnn_type=gnn_type,
+                )
         elif vig_type == "pyramid":
             if vig_size == "base":
                 self.vig = pvig_b_224_gelu(drop_rate=dropout)
@@ -86,6 +103,7 @@ class VigCap(CaptioningModel):
             raise NotImplementedError
         elif mode == "feedback":
             if t == 0:
+                visual = self.vig(visual)
                 self.enc_output, self.mask_enc = self.encoder(visual)
                 if isinstance(visual, torch.Tensor):
                     it = visual.data.new_full((visual.shape[0], 1), self.bos_idx).long()
