@@ -1,15 +1,14 @@
-import multiprocessing
 from typing import Optional, Tuple
 
 from torch.utils.data import DataLoader
 
 from data.captioning_dataset import CaptioningDataset, CocoBatcher, Vocab
+from models.new_vig_cap import VigCap
 from models.transformer import (
     MemoryAugmentedEncoder,
     MeshedDecoder,
     ScaledDotProductAttentionMemory,
 )
-from models.vig_cap import VigCap
 
 
 def get_training_data(
@@ -59,37 +58,15 @@ def get_dataloader(
 
 
 def get_model(args: any, vocab: Vocab) -> VigCap:
-    assert args.vig_size in ["tiny", "small", "base"]
-    assert args.vig_type in ["default", "pyramid"]
-
-    if args.vig_type == "default":
-        d_ins = [192, 320, 640]
-        d_in = d_ins[["tiny", "small", "base"].index(args.vig_size)]
-    else:
-        d_ins = [384, 640, 1024]
-        d_in = d_ins[["tiny", "small", "base"].index(args.vig_size)]
-
+    emb_size = 512  # TODO: make this a parameter with args
     encoder = MemoryAugmentedEncoder(
         3,
         0,
-        d_in=d_in,
-        dropout=args.dropout,
+        d_in=emb_size,
         attention_module=ScaledDotProductAttentionMemory,
-        attention_module_kwargs={"m": args.m},
+        attention_module_kwargs={"m": 40},
     )
-    decoder = MeshedDecoder(
-        len(vocab), 54, 3, vocab.stoi["<PAD>"], dropout=args.dropout
-    )
-    model = VigCap(
-        vocab.stoi["<SOS>"],
-        encoder,
-        decoder,
-        args.dropout,
-        args.vig_type,
-        args.vig_size,
-        args.n_blocks,
-        args.num_knn,
-        args.gnn_type,
-    )
+    decoder = MeshedDecoder(len(vocab), 54, 3, vocab.stoi["<PAD>"])
+    model = VigCap(vocab.stoi["<SOS>"], encoder, decoder, emb_size)
     print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
     return model

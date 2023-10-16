@@ -59,9 +59,9 @@ class BeamSearch(object):
             selected_beam_exp = selected_beam.view(selected_beam_red_size).expand(
                 selected_beam_exp_size
             )
-            visual = torch.gather(
-                visual_exp, 1, selected_beam_exp  # .type(torch.int64)
-            ).view(visual_red_shape)
+            visual = torch.gather(visual_exp, 1, selected_beam_exp).view(
+                visual_red_shape
+            )
         else:
             new_visual = []
             for im in visual:
@@ -78,9 +78,9 @@ class BeamSearch(object):
                 selected_beam_exp = selected_beam.view(selected_beam_red_size).expand(
                     selected_beam_exp_size
                 )
-                new_im = torch.gather(
-                    visual_exp, 1, selected_beam_exp  # .type(torch.int64)
-                ).view(visual_red_shape)
+                new_im = torch.gather(visual_exp, 1, selected_beam_exp).view(
+                    visual_red_shape
+                )
                 new_visual.append(new_im)
             visual = tuple(new_visual)
         return visual
@@ -106,17 +106,11 @@ class BeamSearch(object):
         seq_logprob, sort_idxs = torch.sort(self.seq_logprob, 1, descending=True)
         outputs = torch.cat(outputs, -1)
         outputs = torch.gather(
-            outputs,
-            1,
-            sort_idxs.expand(self.b_s, self.beam_size, self.max_len),
+            outputs, 1, sort_idxs.expand(self.b_s, self.beam_size, self.max_len)
         )
         log_probs = torch.cat(self.log_probs, -1)
         log_probs = torch.gather(
-            log_probs,
-            1,
-            sort_idxs.expand(
-                self.b_s, self.beam_size, self.max_len
-            ),  # .type(torch.int64),
+            log_probs, 1, sort_idxs.expand(self.b_s, self.beam_size, self.max_len)
         )
         if return_probs:
             all_log_probs = torch.cat(self.all_log_probs, 2)
@@ -125,8 +119,7 @@ class BeamSearch(object):
                 1,
                 sort_idxs.unsqueeze(-1).expand(
                     self.b_s, self.beam_size, self.max_len, all_log_probs.shape[-1]
-                )
-                # .type(torch.int64),
+                ),
             )
 
         outputs = outputs.contiguous()[:, :out_size]
@@ -178,7 +171,7 @@ class BeamSearch(object):
 
         selected_idx, selected_logprob = self.select(t, candidate_logprob, **kwargs)
         selected_beam = torch.div(
-            selected_idx, candidate_logprob.shape[-1], rounding_mode="trunc"
+            selected_idx, candidate_logprob.shape[-1], rounding_mode="floor"
         )
         selected_words = selected_idx - selected_beam * candidate_logprob.shape[-1]
 
@@ -186,13 +179,8 @@ class BeamSearch(object):
         visual = self._expand_visual(visual, cur_beam_size, selected_beam)
 
         self.seq_logprob = selected_logprob.unsqueeze(-1)
-        self.seq_mask = torch.gather(
-            self.seq_mask, 1, selected_beam.unsqueeze(-1)  # .type(torch.int64)
-        )
-        outputs = list(
-            torch.gather(o, 1, selected_beam.unsqueeze(-1))  # .type(torch.int64))
-            for o in outputs
-        )
+        self.seq_mask = torch.gather(self.seq_mask, 1, selected_beam.unsqueeze(-1))
+        outputs = list(torch.gather(o, 1, selected_beam.unsqueeze(-1)) for o in outputs)
         outputs.append(selected_words.unsqueeze(-1))
 
         if return_probs:
@@ -208,18 +196,14 @@ class BeamSearch(object):
             1,
             selected_beam.unsqueeze(-1).expand(
                 self.b_s, self.beam_size, word_logprob.shape[-1]
-            )
-            # .type(torch.int64),
+            ),
         )
         this_word_logprob = torch.gather(
-            this_word_logprob, 2, selected_words.unsqueeze(-1)  # .type(torch.int64)
+            this_word_logprob, 2, selected_words.unsqueeze(-1)
         )
         self.log_probs = list(
             torch.gather(
-                o,
-                1,
-                selected_beam.unsqueeze(-1).expand(self.b_s, self.beam_size, 1)
-                # .type(torch.int64),
+                o, 1, selected_beam.unsqueeze(-1).expand(self.b_s, self.beam_size, 1)
             )
             for o in self.log_probs
         )

@@ -143,42 +143,53 @@ class MeshedDecoder(Module):
         self.register_state("running_seq", torch.zeros((1,)).long())
 
     @torch.jit.export
-    def forward(self, sequence, encoder_output, mask_encoder):
+    def forward(self, captions, encoder_output, mask_encoder, _is_stateful=False):
         # input (b_s, seq_len)
-        b_s, seq_len = sequence.shape[:2]
-        mask_queries = (
-            (sequence != self.padding_idx).unsqueeze(-1).float()
+        b_s, seq_len = captions.shape[:2]
+        padding_mask_queries = (
+            (captions != self.padding_idx).unsqueeze(-1).float()
         )  # (b_s, seq_len, 1)
+
+        # Create mask so we only attend to the past tokens
         mask_self_attention = torch.triu(
-            torch.ones((seq_len, seq_len), dtype=torch.uint8, device=sequence.device),
+            torch.ones((seq_len, seq_len), dtype=torch.uint8, device=captions.device),
             diagonal=1,
-        )
-        mask_self_attention = mask_self_attention.unsqueeze(0).unsqueeze(
-            0
-        )  # (1, 1, seq_len, seq_len)
+        )  # (seq_len, seq_len)
+        mask_self_attention = mask_self_attention.unsqueeze(0).unsqueeze(0)
+
+        # Add mask to prevent attending to padding tokens
         mask_self_attention = (
             mask_self_attention
-            + (sequence == self.padding_idx).unsqueeze(1).unsqueeze(1).byte()
+            + (captions == self.padding_idx).unsqueeze(1).unsqueeze(1).byte()
         )
         mask_self_attention = mask_self_attention.gt(0)  # (b_s, 1, seq_len, seq_len)
+
         if self._is_stateful:
             self.running_mask_self_attention = torch.cat(
                 [self.running_mask_self_attention, mask_self_attention], -1
             )
             mask_self_attention = self.running_mask_self_attention
 
+        # Create sequence of 1, 2, ..., seq_len for positional embeddings
         seq = (
-            torch.arange(1, seq_len + 1).view(1, -1).expand(b_s, -1).to(sequence.device)
+            torch.arange(1, seq_len + 1).view(1, -1).expand(b_s, -1).to(captions.device)
         )  # (b_s, seq_len)
-        seq = seq.masked_fill(mask_queries.squeeze(-1) == 0, 0)
+
+        # Mask padding tokens from positional embeddings
+        seq = seq.masked_fill(padding_mask_queries.squeeze(-1) == 0, 0)
+
         if self._is_stateful:
             self.running_seq.add_(1)
             seq = self.running_seq
 
-        out = self.word_emb(sequence.type(torch.int64)) + self.pos_emb(seq)
+        out = self.word_emb(captions.type(torch.int64)) + self.pos_emb(seq)
         for i, layer in enumerate(self.layers):
             out = layer(
-                out, encoder_output, mask_queries, mask_self_attention, mask_encoder
+                out,
+                encoder_output,
+                padding_mask_queries,
+                mask_self_attention,
+                mask_encoder,
             )
 
         out = self.fc(out)

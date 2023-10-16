@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 import pandas as pd
+import PIL.Image as Image
 import torch
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
@@ -68,7 +69,15 @@ class CaptioningDataset(Dataset):
         captions_file: str,  # dataset_coco.json
         dataset_name: str = "coco",
         transform: transforms.Compose = transforms.Compose(
-            [transforms.functional.convert_image_dtype, transforms.Resize((224, 224))]
+            [
+                # transforms.functional.convert_image_dtype,
+                transforms.Resize((256, 256)),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
         ),
         freq_threshold: int = 5,
         split: str = "train",
@@ -119,6 +128,13 @@ class CaptioningDataset(Dataset):
             os.path.join(self.root_dir, data["dir"], data["filename"]),
             ImageReadMode.RGB,
         )
+
+        # Read image in using PIL
+
+        image = Image.open(
+            os.path.join(self.root_dir, data["dir"], data["filename"])
+        ).convert("RGB")
+
         if self.transform is not None:
             image = self.transform(image)
 

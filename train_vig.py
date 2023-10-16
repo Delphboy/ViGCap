@@ -16,7 +16,7 @@ import factories
 from evaluation import Cider, PTBTokenizer
 
 
-def evaluate_loss(model, dataloader, loss_fn):
+def evaluate_loss(model, dataloader, loss_fn, epoch):
     # Validation loss
     model.eval()
     running_loss = 0.0
@@ -24,17 +24,12 @@ def evaluate_loss(model, dataloader, loss_fn):
         desc="Epoch %d - validation" % epoch, unit="it", total=len(dataloader)
     ) as pbar:
         with torch.no_grad():
-            for it, (detections, captions, lengths) in enumerate(dataloader):
+            for it, (detections, captions, _) in enumerate(dataloader):
                 detections = detections.to(device)
                 captions = captions[0:-1:5, :].to(device)
 
                 out = model(detections, captions)
-
-                captions = captions[:, 1:].contiguous()
-                out = out[:, :-1].contiguous()
-                loss = loss_fn(
-                    out.view(-1, len(dataloader.dataset.vocab)), captions.view(-1)
-                )
+                loss = loss_fn(out.permute(0, 2, 1), captions)
                 this_loss = loss.item()
                 running_loss += this_loss
 
@@ -57,15 +52,12 @@ def evaluate_metrics(model, dataloader, text_field):
             images = images.to(device)
 
             with torch.no_grad():
-                # TODO: Remove hard-coded max length. Use --flag
-                # TODO: Remove hard-coded beam size. Use --flag
-                out, _ = model.module.beam_search(
-                    images,
-                    20,
-                    text_field.vocab.stoi["<EOS>"],
-                    5,
-                    out_size=1,
-                )
+                # TODO: Remove hard-coded max length. Use --max_length
+                # TODO: Remove hard-coded beam size. Use --beam_size
+                # out, _ = model.beam_search(
+                #     images, 20, text_field.vocab.stoi["<EOS>"], 3, out_size=1
+                # )
+                out, _ = model.caption(images, 20, text_field.vocab)
             caps_gen = []
             for b in range(out.shape[0]):
                 caps_gen.append(
@@ -73,9 +65,9 @@ def evaluate_metrics(model, dataloader, text_field):
                         [
                             dataloader.dataset.vocab.itos[str(int(i))]
                             for i in out[b]
-                            if i != text_field.vocab.stoi["<PAD>"]
-                            and i != text_field.vocab.stoi["<EOS>"]
-                            and i != text_field.vocab.stoi["<SOS>"]
+                            # if i != text_field.vocab.stoi["<PAD>"]
+                            # and i != text_field.vocab.stoi["<EOS>"]
+                            # and i != text_field.vocab.stoi["<SOS>"]
                         ]
                     )
                 )
@@ -85,9 +77,9 @@ def evaluate_metrics(model, dataloader, text_field):
                     [
                         dataloader.dataset.vocab.itos[str(int(i))]
                         for i in cap
-                        if i != text_field.vocab.stoi["<PAD>"]
-                        and i != text_field.vocab.stoi["<EOS>"]
-                        and i != text_field.vocab.stoi["<SOS>"]
+                        # if i != text_field.vocab.stoi["<PAD>"]
+                        # and i != text_field.vocab.stoi["<EOS>"]
+                        # and i != text_field.vocab.stoi["<SOS>"]
                     ]
                 )
                 for cap in caps_gt
@@ -95,9 +87,13 @@ def evaluate_metrics(model, dataloader, text_field):
 
             caps_gt = [caps_gt[i : i + 5] for i in range(0, len(caps_gt), 5)]
 
-            if args.debug:
-                print(caps_gen)
-                print(caps_gt)
+            if it % 50 == 0:
+                print("pred:")
+                [print(c) for c in caps_gen]
+                print()
+
+                print("gt:")
+                [print(c) for c in caps_gt]
                 print()
 
             for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
@@ -113,7 +109,24 @@ def evaluate_metrics(model, dataloader, text_field):
     return scores
 
 
-def train_xe(model, dataloader, optim):
+def out_to_caption(out, dataloader) -> str:
+    captions = []
+    for b in range(out.shape[0]):
+        captions.append(
+            " ".join(
+                [
+                    dataloader.dataset.vocab.itos[str(int(i))]
+                    for i in out[b]
+                    # if i != dataloader.dataset.vocab.stoi["<PAD>"]
+                    # and i != dataloader.dataset.vocab.stoi["<EOS>"]
+                    # and i != dataloader.dataset.vocab.stoi["<SOS>"]
+                ]
+            )
+        )
+    return captions
+
+
+def train_xe(model, dataloader, optim, loss_fn, epoch):
     # Training with cross-entropy
     model.train()
     running_loss = 0.0
@@ -126,13 +139,31 @@ def train_xe(model, dataloader, optim):
 
             out = model(images, captions)
 
-            optim.zero_grad(set_to_none=True)
-            captions_gt = captions[:, 1:].contiguous()
-            out = out[:, :-1].contiguous()
+            if it % 100 == 0:
+                captions_pred = out.argmax(dim=-1)
+                captions_pred = out_to_caption(captions_pred, dataloader)
+                print("pred:")
+                [print(c) for c in captions_pred]
+                print()
 
-            loss = loss_fn(
-                out.view(-1, len(dataloader.dataset.vocab)), captions_gt.view(-1)
-            )
+                gt = out_to_caption(captions, dataloader)
+                print("gt:")
+                [print(c) for c in gt]
+                print()
+
+            optim.zero_grad(set_to_none=True)
+
+            # captions_gt = captions[:, 1:].contiguous()
+            # out = out[:, :-1].contiguous()
+            # loss = loss_fn(
+            #     out.view(-1, len(dataloader.dataset.vocab)), captions_gt.view(-1)
+            # )
+
+            # captions_gt = captions[:, 1:].contiguous()
+            # out = out[:, 1:].contiguous()
+            # loss = loss_fn(out.permute(0, 2, 1), captions_gt)
+
+            loss = loss_fn(out.permute(0, 2, 1), captions)
             loss.backward()
 
             optim.step()
@@ -369,13 +400,13 @@ if __name__ == "__main__":
     print("Dataloaders created")
 
     model = factories.get_model(args, train_data.vocab).to(device)
-    model = nn.DataParallel(model)
+    # model = nn.DataParallel(model)
 
     # Initial conditions
     optim = Adam(model.parameters(), lr=args.learning_rate)
     scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=0.8)
-    # loss_fn = nn.NLLLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
-    loss_fn = nn.CrossEntropyLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
+    loss_fn = nn.NLLLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
+    # loss_fn = nn.CrossEntropyLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
 
     use_rl = False
     best_cider = 0.0
@@ -396,7 +427,7 @@ if __name__ == "__main__":
             np.random.set_state(data["numpy_rng_state"])
             random.setstate(data["random_rng_state"])
             model.load_state_dict(data["state_dict"], strict=False)
-            optim.load_state_dict(data["optimizer"])
+            # optim.load_state_dict(data["optimizer"])
             scheduler.load_state_dict(data["scheduler"])
             start_epoch = data["epoch"] + 1
             best_cider = data["best_cider"]
@@ -410,7 +441,7 @@ if __name__ == "__main__":
     print("Training starts")
     for epoch in range(start_epoch, args.max_epochs):
         if not use_rl:
-            train_loss = train_xe(model, train_dataloader, optim)
+            train_loss = train_xe(model, train_dataloader, optim, loss_fn, epoch)
             writer.add_scalar("data/train_loss", train_loss, epoch)
         else:
             train_dataloader = factories.get_dataloader(
@@ -423,8 +454,8 @@ if __name__ == "__main__":
             writer.add_scalar("data/reward", reward, epoch)
             writer.add_scalar("data/reward_baseline", reward_baseline, epoch)
 
-        # Validation loss
-        val_loss = evaluate_loss(model, val_dataloader, loss_fn)
+        # # Validation loss
+        val_loss = evaluate_loss(model, val_dataloader, loss_fn, epoch)
         writer.add_scalar("data/val_loss", val_loss, epoch)
 
         # Validation scores
