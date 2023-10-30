@@ -1,74 +1,25 @@
-from typing import Optional
+import copy
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
-from models.vig.pyramid_vig import (
-    pvig_b_224_gelu,
-    pvig_m_224_gelu,
-    pvig_s_224_gelu,
-    pvig_ti_224_gelu,
-)
-from models.vig.vig import vig_b_224_gelu, vig_s_224_gelu, vig_ti_224_gelu
-
-from .captioning_model import CaptioningModel
+from models.meshed.captioning_model import CaptioningModel
+from models.meshed.containers import ModuleList
+from models.vig.vig import Vig
 
 
 class VigCap(CaptioningModel):
-    def __init__(
-        self,
-        bos_idx,
-        encoder,
-        decoder,
-        dropout: Optional[float] = 0.5,
-        vig_type: Optional[str] = "default",
-        vig_size: Optional[str] = "tiny",
-        n_blocks: Optional[int] = 16,
-        num_knn: Optional[int] = 9,
-        gnn_type: Optional[str] = "mr",
-    ):
+    def __init__(self, bos_idx, encoder, decoder, args):
         super(VigCap, self).__init__()
         self.bos_idx = bos_idx
+        self.vig = Vig(args)
         self.encoder = encoder
         self.decoder = decoder
+        self.dropout = nn.Dropout(args.dropout)
         self.register_state("enc_output", None)
         self.register_state("mask_enc", None)
         self.init_weights()
-        self.dropout = nn.Dropout(dropout)
-
-        if vig_type == "default":
-            if vig_size == "base":
-                self.vig = vig_b_224_gelu(
-                    drop_rate=dropout,
-                    n_blocks=n_blocks,
-                    num_knn=num_knn,
-                    gnn_type=gnn_type,
-                )
-            elif vig_size == "small":
-                self.vig = vig_s_224_gelu(
-                    drop_rate=dropout,
-                    n_blocks=n_blocks,
-                    num_knn=num_knn,
-                    gnn_type=gnn_type,
-                )
-            else:
-                self.vig = vig_ti_224_gelu(
-                    drop_rate=dropout,
-                    n_blocks=n_blocks,
-                    num_knn=num_knn,
-                    gnn_type=gnn_type,
-                )
-        elif vig_type == "pyramid":
-            if vig_size == "base":
-                self.vig = pvig_b_224_gelu(drop_rate=dropout)
-            elif vig_size == "small":
-                self.vig = pvig_s_224_gelu(drop_rate=dropout)
-            elif vig_size == "medium":
-                self.vig = pvig_m_224_gelu(drop_rate=dropout)
-            else:
-                self.vig = pvig_ti_224_gelu(drop_rate=dropout)
-        else:
-            raise ValueError(f"vig_type {vig_type} not supported")
 
     @property
     def d_model(self):
@@ -79,24 +30,17 @@ class VigCap(CaptioningModel):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    @torch.jit.export
-    def forward(self, images, seq):
-        # Get a set of image features from ViG
-        input = self.vig(images)
-        # input = self.dropout(input)
+    def forward(self, images, seq, *args):
+        images = self.vig(images)
+        images = self.dropout(images)
 
-        # Encode the image features
-        enc_output, mask_enc = self.encoder(input)
-        # enc_output = self.dropout(enc_output)
-
-        # Meshed decoder
+        enc_output, mask_enc = self.encoder(images)
         dec_output = self.decoder(seq, enc_output, mask_enc)
         return dec_output
 
     def init_state(self, b_s, device):
         return [torch.zeros((b_s, 0), dtype=torch.long, device=device), None, None]
 
-    @torch.jit.ignore
     def step(self, t, prev_output, visual, seq, mode="teacher_forcing", **kwargs):
         it = None
         if mode == "teacher_forcing":
@@ -117,3 +61,21 @@ class VigCap(CaptioningModel):
                 it = prev_output
 
         return self.decoder(it, self.enc_output, self.mask_enc)
+
+
+class VigCapEnsemble(CaptioningModel):
+    def __init__(self, model: VigCap, weight_files):
+        super(VigCapEnsemble, self).__init__()
+        self.n = len(weight_files)
+        self.models = ModuleList([copy.deepcopy(model) for _ in range(self.n)])
+        for i in range(self.n):
+            state_dict_i = torch.load(weight_files[i])["state_dict"]
+            self.models[i].load_state_dict(state_dict_i)
+
+    def step(self, t, prev_output, visual, seq, mode="teacher_forcing", **kwargs):
+        out_ensemble = []
+        for i in range(self.n):
+            out_i = self.models[i].step(t, prev_output, visual, seq, mode, **kwargs)
+            out_ensemble.append(out_i.unsqueeze(0))
+
+        return torch.mean(torch.cat(out_ensemble, 0), dim=0)

@@ -2,13 +2,14 @@ from typing import Optional, Tuple
 
 from torch.utils.data import DataLoader
 
-from data.captioning_dataset import CaptioningDataset, CocoBatcher, Vocab
-from models.new_vig_cap import VigCap
-from models.transformer import (
+from dataset.captioning_dataset import Batcher, CaptioningDataset, Vocab
+from models.meshed.captioning_model import CaptioningModel
+from models.meshed.transformer import (
     MemoryAugmentedEncoder,
     MeshedDecoder,
     ScaledDotProductAttentionMemory,
 )
+from models.vig_cap import VigCap
 
 
 def get_training_data(
@@ -40,12 +41,10 @@ def get_training_data(
 
 def get_dataloader(
     dataset: CaptioningDataset,
-    dataset_name: Optional[str] = "coco",
-    batch_size: int = 128,
-    shuffle: bool = False,
+    batch_size: int = 32,
+    shuffle: bool = True,
 ) -> DataLoader:
-    talk_file_location = f"data/{dataset_name}_talk.json"
-    num_workers = 4
+    num_workers = 0
 
     return DataLoader(
         dataset,
@@ -53,20 +52,23 @@ def get_dataloader(
         num_workers=num_workers,
         pin_memory=True,
         shuffle=shuffle,
-        collate_fn=CocoBatcher(talk_file_location),
+        collate_fn=Batcher(dataset.vocab),
     )
 
 
-def get_model(args: any, vocab: Vocab) -> VigCap:
-    emb_size = 512  # TODO: make this a parameter with args
+def get_model(args: any, vocab: Vocab) -> CaptioningModel:
     encoder = MemoryAugmentedEncoder(
-        3,
-        0,
-        d_in=emb_size,
+        args.n,
+        vocab.stoi["<pad>"],
         attention_module=ScaledDotProductAttentionMemory,
-        attention_module_kwargs={"m": 40},
+        attention_module_kwargs={"m": args.m},
+        d_in=args.meshed_emb_size,
+        dropout=args.dropout,
     )
-    decoder = MeshedDecoder(len(vocab), 54, 3, vocab.stoi["<PAD>"])
-    model = VigCap(vocab.stoi["<SOS>"], encoder, decoder, emb_size)
+    decoder = MeshedDecoder(
+        len(vocab), 54, args.n, vocab.stoi["<pad>"], dropout=args.dropout
+    )
+    model = VigCap(vocab.stoi["<bos>"], encoder, decoder, args)
+
     print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
     return model

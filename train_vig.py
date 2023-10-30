@@ -1,183 +1,56 @@
 import argparse
+import itertools
 import multiprocessing
 import os
 import random
-from shutil import copyfile
 
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.optim import Adam
-from torch.utils.tensorboard import SummaryWriter
+import torch.nn.functional as F
 from tqdm import tqdm
 
 import evaluation
 import factories
 from evaluation import Cider, PTBTokenizer
 
-
-def evaluate_loss(model, dataloader, loss_fn, epoch):
-    # Validation loss
-    model.eval()
-    running_loss = 0.0
-    with tqdm(
-        desc="Epoch %d - validation" % epoch, unit="it", total=len(dataloader)
-    ) as pbar:
-        with torch.no_grad():
-            for it, (detections, captions, _) in enumerate(dataloader):
-                detections = detections.to(device)
-                captions = captions[0:-1:5, :].to(device)
-
-                out = model(detections, captions)
-                loss = loss_fn(out.permute(0, 2, 1), captions)
-                this_loss = loss.item()
-                running_loss += this_loss
-
-                pbar.set_postfix(loss=running_loss / (it + 1))
-                pbar.update()
-
-    val_loss = running_loss / len(dataloader)
-    return val_loss
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def evaluate_metrics(model, dataloader, text_field):
-    model.eval()
-    gen = {}
-    gts = {}
-
-    with tqdm(
-        desc="Epoch %d - evaluation" % epoch, unit="it", total=len(dataloader)
-    ) as pbar:
-        for it, (images, caps_gt, lengths) in enumerate(iter(dataloader)):
-            images = images.to(device)
-
-            with torch.no_grad():
-                # TODO: Remove hard-coded max length. Use --max_length
-                # TODO: Remove hard-coded beam size. Use --beam_size
-                # out, _ = model.beam_search(
-                #     images, 20, text_field.vocab.stoi["<EOS>"], 3, out_size=1
-                # )
-                out, _ = model.caption(images, 20, text_field.vocab)
-            caps_gen = []
-            for b in range(out.shape[0]):
-                caps_gen.append(
-                    " ".join(
-                        [
-                            dataloader.dataset.vocab.itos[str(int(i))]
-                            for i in out[b]
-                            # if i != text_field.vocab.stoi["<PAD>"]
-                            # and i != text_field.vocab.stoi["<EOS>"]
-                            # and i != text_field.vocab.stoi["<SOS>"]
-                        ]
-                    )
-                )
-
-            caps_gt = [
-                " ".join(
-                    [
-                        dataloader.dataset.vocab.itos[str(int(i))]
-                        for i in cap
-                        # if i != text_field.vocab.stoi["<PAD>"]
-                        # and i != text_field.vocab.stoi["<EOS>"]
-                        # and i != text_field.vocab.stoi["<SOS>"]
-                    ]
-                )
-                for cap in caps_gt
-            ]
-
-            caps_gt = [caps_gt[i : i + 5] for i in range(0, len(caps_gt), 5)]
-
-            if it % 50 == 0:
-                print("pred:")
-                [print(c) for c in caps_gen]
-                print()
-
-                print("gt:")
-                [print(c) for c in caps_gt]
-                print()
-
-            for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
-                gen["%d_%d" % (it, i)] = [
-                    gen_i,
-                ]
-                gts["%d_%d" % (it, i)] = gts_i
-            pbar.update()
-
-    gts = evaluation.PTBTokenizer.tokenize(gts)
-    gen = evaluation.PTBTokenizer.tokenize(gen)
-    scores, _ = evaluation.compute_scores(gts, gen)
-    return scores
-
-
-def out_to_caption(out, dataloader) -> str:
-    captions = []
-    for b in range(out.shape[0]):
-        captions.append(
-            " ".join(
-                [
-                    dataloader.dataset.vocab.itos[str(int(i))]
-                    for i in out[b]
-                    # if i != dataloader.dataset.vocab.stoi["<PAD>"]
-                    # and i != dataloader.dataset.vocab.stoi["<EOS>"]
-                    # and i != dataloader.dataset.vocab.stoi["<SOS>"]
-                ]
-            )
-        )
-    return captions
-
-
-def train_xe(model, dataloader, optim, loss_fn, epoch):
-    # Training with cross-entropy
+def train_epoch_xe(model, dataloader, loss_fn, optim, scheduler, epoch, vocab):
     model.train()
     running_loss = 0.0
-    with tqdm(
-        desc="Epoch %d - train" % epoch, unit="it", total=len(dataloader)
-    ) as pbar:
-        for it, (images, captions, lengths) in enumerate(dataloader):
-            images = images.to(device)
-            captions = captions[0:-1:5, :].to(device)
 
-            out = model(images, captions)
+    desc = "Epoch %d - train" % epoch
 
-            if it % 100 == 0:
-                captions_pred = out.argmax(dim=-1)
-                captions_pred = out_to_caption(captions_pred, dataloader)
-                print("pred:")
-                [print(c) for c in captions_pred]
-                print()
+    with tqdm(desc=desc, unit="it", total=len(dataloader)) as pbar:
+        for it, (detections, captions, _) in enumerate(dataloader):
+            detections = detections.to(DEVICE)
+            captions = captions.to(DEVICE)
 
-                gt = out_to_caption(captions, dataloader)
-                print("gt:")
-                [print(c) for c in gt]
-                print()
+            out = model(detections, captions)
 
-            optim.zero_grad(set_to_none=True)
+            optim.zero_grad()
+            captions_gt = captions[:, 1:].contiguous()
 
-            # captions_gt = captions[:, 1:].contiguous()
-            # out = out[:, :-1].contiguous()
-            # loss = loss_fn(
-            #     out.view(-1, len(dataloader.dataset.vocab)), captions_gt.view(-1)
-            # )
-
-            # captions_gt = captions[:, 1:].contiguous()
-            # out = out[:, 1:].contiguous()
-            # loss = loss_fn(out.permute(0, 2, 1), captions_gt)
-
-            loss = loss_fn(out.permute(0, 2, 1), captions)
+            out = out[:, :-1].contiguous()
+            loss = loss_fn(out.view(-1, len(vocab)), captions_gt.view(-1))
             loss.backward()
 
             optim.step()
-            running_loss += loss.item()
+            this_loss = loss.item()
+            running_loss += this_loss
 
             pbar.set_postfix(loss=running_loss / (it + 1))
             pbar.update()
 
-    loss = running_loss / len(dataloader)
-    # scheduler.step()
+    scheduler.step()
+
+    loss = running_loss / (it + 1)
     return loss
 
 
-def train_scst(model, dataloader, optim, cider, text_field):
+def train_epoch_scst(model, dataloader, optim, cider, text_field):
     # Training with self-critical
     tokenizer_pool = multiprocessing.Pool()
     running_reward = 0.0
@@ -185,58 +58,40 @@ def train_scst(model, dataloader, optim, cider, text_field):
     model.train()
     running_loss = 0.0
     seq_len = 20
-    beam_size = 3
-    out_size = 1
+    beam_size = 5
 
-    with tqdm(
-        desc="Epoch %d - train" % epoch, unit="it", total=len(dataloader)
-    ) as pbar:
-        for it, (images, caps_gt, lengths) in enumerate(dataloader):
-            images = images.to(device)
-            outs, log_probs = model.module.beam_search(
-                model.module.vig(images),
+    with tqdm(desc="Epoch %d - train" % 1, unit="it", total=len(dataloader)) as pbar:
+        for it, (detections, _, caps_gt) in enumerate(dataloader):
+            detections = detections.to(DEVICE)
+            outs, log_probs = model.beam_search(
+                detections,
                 seq_len,
-                text_field.vocab.stoi["<EOS>"],
+                text_field.vocab.stoi["<eos>"],
                 beam_size,
-                out_size=out_size,
+                out_size=beam_size,
             )
             optim.zero_grad()
 
             # Rewards
-            caps_gen = []
-            for b in range(outs.shape[0]):
-                caps_gen.append(
-                    " ".join(
+            caps_gen = text_field.decode(outs.view(-1, seq_len))
+            caps_gt = list(
+                itertools.chain(
+                    *(
                         [
-                            dataloader.dataset.vocab.itos[str(int(i))]
-                            for i in outs[b]
-                            if i != text_field.vocab.stoi["<PAD>"]
-                            and i != text_field.vocab.stoi["<EOS>"]
-                            and i != text_field.vocab.stoi["<SOS>"]
+                            c,
                         ]
+                        * beam_size
+                        for c in caps_gt
                     )
                 )
-
-            caps_gt = [
-                " ".join(
-                    [
-                        dataloader.dataset.vocab.itos[str(int(i))]
-                        for i in cap
-                        if i != text_field.vocab.stoi["<PAD>"]
-                        and i != text_field.vocab.stoi["<EOS>"]
-                        and i != text_field.vocab.stoi["<SOS>"]
-                    ]
-                )
-                for cap in caps_gt
-            ]
-
-            caps_gt = [caps_gt[i : i + 5] for i in range(0, len(caps_gt), 5)]
-
+            )
             caps_gen, caps_gt = tokenizer_pool.map(
                 evaluation.PTBTokenizer.tokenize, [caps_gen, caps_gt]
             )
             reward = cider.compute_score(caps_gt, caps_gen)[1].astype(np.float32)
-            reward = torch.from_numpy(reward).to(device).view(images.shape[0], out_size)
+            reward = (
+                torch.from_numpy(reward).to(DEVICE).view(detections.shape[0], beam_size)
+            )
             reward_baseline = torch.mean(reward, -1, keepdim=True)
             loss = -torch.mean(log_probs, -1) * (reward - reward_baseline)
 
@@ -260,284 +115,211 @@ def train_scst(model, dataloader, optim, cider, text_field):
     return loss, reward, reward_baseline
 
 
-if __name__ == "__main__":
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+@torch.no_grad()
+def evaluate_epoch_xe(model, dataloader, loss_fn, epoch, vocab):
+    model.eval()
+    running_loss = 0.0
 
-    parser = argparse.ArgumentParser(description="ViGCap Training Options")
+    desc = "Epoch %d - evaluate" % epoch
+
+    with tqdm(desc=desc, unit="it", total=len(dataloader)) as pbar:
+        for it, (detections, captions, _) in enumerate(dataloader):
+            detections = detections.to(DEVICE)
+            captions = captions.to(DEVICE)
+
+            out = model(detections, captions)
+            captions_gt = captions[:, 1:].contiguous()
+            out = out[:, :-1].contiguous()
+            loss = loss_fn(out.view(-1, len(vocab)), captions_gt.view(-1))
+            this_loss = loss.item()
+            running_loss += this_loss
+
+            pbar.set_postfix(loss=running_loss / (it + 1))
+            pbar.update()
+
+    loss = running_loss / (it + 1)
+    return loss
+
+
+def evaluate_metrics(model, dataloader, text_field, epoch):
+    import itertools
+
+    model.eval()
+    gen = {}
+    gts = {}
+    with tqdm(
+        desc="Epoch %d - evaluation" % epoch, unit="it", total=len(dataloader)
+    ) as pbar:
+        for it, (images, enc_caps, caps_gt) in enumerate(iter(dataloader)):
+            images = images.to(DEVICE)
+
+            with torch.no_grad():
+                out, _ = model.beam_search(
+                    images, 20, text_field.vocab.stoi["<eos>"], 5, out_size=1
+                )
+            caps_gen = text_field.decode(out, join_words=False)
+            for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
+                gen_i = " ".join([k for k, g in itertools.groupby(gen_i)])
+                gen["%d_%d" % (it, i)] = [
+                    gen_i,
+                ]
+                gts["%d_%d" % (it, i)] = gts_i
+            pbar.update()
+
+    gts = evaluation.PTBTokenizer.tokenize(gts)
+    gen = evaluation.PTBTokenizer.tokenize(gen)
+    scores, _ = evaluation.compute_scores(gts, gen)
+    return scores
+
+
+if __name__ == "__main__":
+    # set up argument parser
+    parser = argparse.ArgumentParser(description="Train a VIG model.")
+    # Required arguments
     parser.add_argument(
         "--dataset",
         type=str,
         default="coco",
-        help="[coco (default) | flickr30k | flickr8k]",
+        required=True,
+        help="Dataset name [coco (default), flickr32k, flickr8k]",
     )
     parser.add_argument(
         "--dataset_img_path",
         type=str,
-        help="Path to the dataset images folder",
+        default=None,
+        required=True,
+        help="Path to the dataset images",
     )
     parser.add_argument(
         "--dataset_ann_path",
         type=str,
-        help="Path to the dataset annotations file",
+        default=None,
+        required=True,
+        help="Path to the dataset annotations",
     )
     parser.add_argument(
-        "--exp_name", type=str, default="ViGCap", help="Experiment name"
-    )
-    parser.add_argument(
-        "--learning_rate", type=float, default=3e-4, help="Initial learning rate"
-    )
-    parser.add_argument(
-        "--batch_size", type=int, default=16, help="Training batch size"
-    )
-    parser.add_argument(
-        "--max_epochs", type=int, default=20, help="Number of training epochs"
-    )
-    parser.add_argument(
-        "--patience", type=int, default=5, help="Early stopping patience | -1 = disable"
-    )
-    parser.add_argument(
-        "--dropout", type=float, default=0.5, help="Dropout probability"
-    )
-    parser.add_argument(
-        "--n_blocks", type=int, default=6, help="Number of encoder blocks"
-    )
-    parser.add_argument(
-        "--workers", type=int, default=0, help="Number of dataloader workers"
-    )
-    parser.add_argument(
-        "--m", type=int, default=40, help="Number of meshed-memory vectors"
-    )
-    parser.add_argument(
-        "--head", type=int, default=8, help="Number of heads in multi-head attention"
-    )
-    parser.add_argument(
-        "--resume_last", action="store_true", help="Resume from last epoch"
-    )
-    parser.add_argument(
-        "--resume_best", action="store_true", help="Resume from best epoch"
-    )
-    parser.add_argument(
-        "--logs_folder",
+        "--exp_name",
         type=str,
-        default="tensorboard_logs",
-        help="Path to tensorboard logs folder",
+        default=None,
+        required=True,
+        help="Name of the experiment",
     )
+
+    # Model parameters
+    parser.add_argument("--m", type=int, default=40, help="Number of memory slots")
+    parser.add_argument("--n", type=int, default=3, help="Number of stacked M2 layers")
     parser.add_argument(
-        "--seed",
+        "--meshed_emb_size",
         type=int,
-        default=-1,
-        help="Seed for random number generators. -1 for random seed each time",
+        default=512,
+        help="Embedding size for meshed-memory",
     )
     parser.add_argument(
-        "--test_every",
+        "--patch_feature_size", type=int, default=1024, help="Size of patch features"
+    )
+    parser.add_argument(
+        "--gnn_emb_size", type=int, default=512, help="Embedding size for GNN"
+    )
+    parser.add_argument(
+        "--sag_ratio", type=float, default=0.5, help="Ratio for SAG pooling"
+    )
+
+    # Training parameters
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+    parser.add_argument("--max_epochs", type=int, default=20, help="maximum epochs")
+    parser.add_argument(
+        "--learning_rate", type=float, default=1e-4, help="Learning rate"
+    )
+    parser.add_argument(
+        "--workers", type=int, default=4, help="Number of pytorch dataloader workers"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=-1, help="Random seed (-1) for no seed"
+    )
+    parser.add_argument(
+        "--patience",
         type=int,
-        default=-1,
-        help="Run model on the test set every N epochs",
+        default=5,
+        help="Patience for early stopping (-1 to disable)",
     )
-    parser.add_argument(
-        "--vig_size",
-        type=str,
-        default="tiny",
-        help="ViG model size [tiny | small | base]",
-    )
-    parser.add_argument(
-        "--vig_type",
-        type=str,
-        default="default",
-        help="ViG model type [default | pyramid]",
-    )
-    parser.add_argument("--num_knn", type=int, default=9, help="k for kNN")
-    parser.add_argument(
-        "--gnn_type", type=str, default="mr", help="GNN type [edge|mr|sage|gin]"
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Debug mode: enable pytorch debugging APIs",
-    )
+    parser.add_argument("--dropout", type=float, default=0.3, help="Dropout rate")
 
     args = parser.parse_args()
 
-    if args.seed > 0:
-        random.seed(args.seed)
+    # Set random seed
+    if args.seed != -1:
         torch.manual_seed(args.seed)
         np.random.seed(args.seed)
+        random.seed(args.seed)
 
-    if not args.debug:
-        # disable debugging APIs
-        # any PyTorch APIs are intended for debugging and should be disabled for regular
-        # training runs:
-        # ie)
-        # anomaly detection: torch.autograd.detect_anomaly or torch.autograd.set_detect_anomaly(True)
-        # profiler related: torch.autograd.profiler.emit_nvtx, torch.autograd.profiler.profile
-        # autograd gradcheck: torch.autograd.gradcheck or torch.autograd.gradgradcheck
+    if not os.path.exists("saved_models"):
+        os.makedirs("saved_models")
 
-        torch.autograd.set_detect_anomaly(False)
-        torch.autograd.profiler.emit_nvtx(False)
-        torch.autograd.profiler.profile(False)
-    # TODO: disable gradcheck
-    # https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#disable-debugging-apis
-
-    print("ViGCap Training")
-
-    writer = SummaryWriter(log_dir=os.path.join(args.logs_folder, args.exp_name))
-
-    # Load the data
+    # Load dataset
     train_data, val_data, test_data = factories.get_training_data(args)
-    train_dataloader = factories.get_dataloader(
-        train_data, args.dataset, args.batch_size, True
-    )
-    val_dataloader = factories.get_dataloader(
-        val_data, args.dataset, args.batch_size, False
-    )
-    test_dataloader = factories.get_dataloader(
-        test_data, args.dataset, args.batch_size, False
-    )
+    vocab = train_data.vocab
+    train_dataloader = factories.get_dataloader(train_data, args.batch_size)
+    val_dataloader = factories.get_dataloader(val_data, args.batch_size)
+    test_dataloader = factories.get_dataloader(test_data, args.batch_size)
 
-    ref_caps_train = list(train_data.captions)
-    cider_train = Cider(PTBTokenizer.tokenize(ref_caps_train))
+    # Load model
+    model = factories.get_model(args, vocab).to(DEVICE)
 
-    print("Dataloaders created")
-
-    model = factories.get_model(args, train_data.vocab).to(device)
-    # model = nn.DataParallel(model)
+    # Set up optimizer
 
     # Initial conditions
-    optim = Adam(model.parameters(), lr=args.learning_rate)
-    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=0.8)
-    loss_fn = nn.NLLLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
-    # loss_fn = nn.CrossEntropyLoss(ignore_index=train_data.vocab.stoi["<PAD>"])
+    # TODO: Move these to a factory function
+    optim = torch.optim.AdamW(
+        model.parameters(), lr=args.learning_rate, weight_decay=0.05
+    )
+    # scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lambda_lr)
+    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=5, gamma=0.8)
 
+    loss_fn = nn.NLLLoss(ignore_index=vocab.stoi["<pad>"])
     use_rl = False
     best_cider = 0.0
     patience = 0
-    start_epoch = 0
+    losses = []
 
-    if args.resume_last or args.resume_best:
-        if args.resume_last:
-            fname = "saved_models/%s_last.pth" % args.exp_name
-            fname = "saved_models/debug_last.pth"
-        else:
-            fname = "saved_models/%s_best.pth" % args.exp_name
-
-        if os.path.exists(fname):
-            data = torch.load(fname)
-            torch.set_rng_state(data["torch_rng_state"])
-            torch.cuda.set_rng_state(data["cuda_rng_state"])
-            np.random.set_state(data["numpy_rng_state"])
-            random.setstate(data["random_rng_state"])
-            model.load_state_dict(data["state_dict"], strict=False)
-            # optim.load_state_dict(data["optimizer"])
-            scheduler.load_state_dict(data["scheduler"])
-            start_epoch = data["epoch"] + 1
-            best_cider = data["best_cider"]
-            patience = data["patience"]
-            use_rl = data["use_rl"]
+    # Training loop
+    for epoch in range(1, args.max_epochs + 1):
+        if use_rl:
+            loss, reward, reward_baseline = train_epoch_scst(
+                model, train_dataloader, optim, Cider(), vocab
+            )
             print(
-                "Resuming from epoch %d, validation loss %f, and best cider %f"
-                % (data["epoch"], data["val_loss"], data["best_cider"])
+                f"Epoch {epoch} - train loss: {loss} - reward: {reward} - reward_baseline: {reward_baseline}"
             )
-
-    print("Training starts")
-    for epoch in range(start_epoch, args.max_epochs):
-        if not use_rl:
-            train_loss = train_xe(model, train_dataloader, optim, loss_fn, epoch)
-            writer.add_scalar("data/train_loss", train_loss, epoch)
         else:
-            train_dataloader = factories.get_dataloader(
-                train_data, args.dataset, args.batch_size // 32, True
+            loss = train_epoch_xe(
+                model, train_dataloader, loss_fn, optim, scheduler, epoch, vocab
             )
-            train_loss, reward, reward_baseline = train_scst(
-                model, train_dataloader, optim, cider_train, train_data
-            )
-            writer.add_scalar("data/train_loss", train_loss, epoch)
-            writer.add_scalar("data/reward", reward, epoch)
-            writer.add_scalar("data/reward_baseline", reward_baseline, epoch)
+            print(f"Epoch {epoch} - train loss: {loss}")
+        losses.append(loss)
 
-        # # Validation loss
-        val_loss = evaluate_loss(model, val_dataloader, loss_fn, epoch)
-        writer.add_scalar("data/val_loss", val_loss, epoch)
+        # Validation
+        with torch.no_grad():
+            val_loss = evaluate_epoch_xe(model, val_dataloader, loss_fn, epoch, vocab)
+        scores = evaluate_metrics(model, val_dataloader, train_data, epoch)
+        print(f"Epoch {epoch} - validation scores: {scores}")
 
-        # Validation scores
-        scores = evaluate_metrics(model, val_dataloader, val_data)
-        print("Validation scores", scores)
-        val_cider = scores["CIDEr"]
-        writer.add_scalar("data/val_cider", val_cider, epoch)
-        writer.add_scalar("data/val_bleu1", scores["BLEU"][0], epoch)
-        writer.add_scalar("data/val_bleu4", scores["BLEU"][3], epoch)
-        writer.add_scalar("data/val_meteor", scores["METEOR"], epoch)
-        writer.add_scalar("data/val_rouge", scores["ROUGE"], epoch)
-
-        # Test scores
-        if args.test_every > 0 and epoch % args.test_every == 0:
-            scores = evaluate_metrics(model, test_dataloader, test_data)
-            print("Test scores", scores)
-            writer.add_scalar("data/test_cider", scores["CIDEr"], epoch)
-            writer.add_scalar("data/test_bleu1", scores["BLEU"][0], epoch)
-            writer.add_scalar("data/test_bleu4", scores["BLEU"][3], epoch)
-            writer.add_scalar("data/test_meteor", scores["METEOR"], epoch)
-            writer.add_scalar("data/test_rouge", scores["ROUGE"], epoch)
-
-        # Prepare for next epoch
-        best = False
-        if val_cider >= best_cider:
-            best_cider = val_cider
+        cider = scores["CIDEr"]
+        if cider > best_cider:
+            best_cider = cider
             patience = 0
-            best = True
+
+            torch.save(model.state_dict(), f"saved_models/{args.exp_name}-best.pt")
         else:
             patience += 1
-
-        switch_to_rl = False
-        exit_train = False
-
-        if patience == args.patience:
-            if not use_rl:
-                use_rl = True
-                switch_to_rl = True
-                patience = 0
-                optim = Adam(model.parameters(), lr=5e-6)
-                print("Switching to RL")
-            else:
-                print("patience reached.")
-                exit_train = True
-
-        if switch_to_rl and not best:
-            data = torch.load("saved_models/%s_best.pth" % args.exp_name)
-            torch.set_rng_state(data["torch_rng_state"])
-            torch.cuda.set_rng_state(data["cuda_rng_state"])
-            np.random.set_state(data["numpy_rng_state"])
-            random.setstate(data["random_rng_state"])
-            model.load_state_dict(data["state_dict"])
-            print(
-                "Resuming from epoch %d, validation loss %f, and best cider %f"
-                % (data["epoch"], data["val_loss"], data["best_cider"])
-            )
-
-        torch.save(
-            {
-                "torch_rng_state": torch.get_rng_state(),
-                "cuda_rng_state": torch.cuda.get_rng_state(),
-                "numpy_rng_state": np.random.get_state(),
-                "random_rng_state": random.getstate(),
-                "epoch": epoch,
-                "val_loss": val_loss,
-                "val_cider": val_cider,
-                "state_dict": model.state_dict(),
-                "optimizer": optim.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "patience": patience,
-                "best_cider": best_cider,
-                "use_rl": use_rl,
-            },
-            "saved_models/%s_last.pth" % args.exp_name,
-        )
-
-        if best:
-            copyfile(
-                "saved_models/%s_last.pth" % args.exp_name,
-                "saved_models/%s_best.pth" % args.exp_name,
-            )
-
-        if exit_train:
-            writer.close()
-            break
+            if patience == args.patience:
+                if not use_rl:
+                    print("Switching to RL")
+                    use_rl = True
+                    # load best model
+                    model.load_state_dict(
+                        torch.load(f"saved_models/{args.exp_name}-best.pt")
+                    )
+                    optim = torch.optim.Adam(model.parameters(), lr=5e-6)
+                else:
+                    print("Early stopping")
+                    break
