@@ -230,6 +230,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--learning_rate", type=float, default=1e-4, help="Learning rate"
     )
+    parser.add_argument("--anneal", type=float, default=0.8, help="LR anneal rate")
     parser.add_argument(
         "--workers", type=int, default=4, help="Number of pytorch dataloader workers"
     )
@@ -262,6 +263,12 @@ if __name__ == "__main__":
     val_dataloader = factories.get_dataloader(val_data, args.batch_size)
     test_dataloader = factories.get_dataloader(test_data, args.batch_size)
 
+    # SCST Things:
+    scst_train_data, _, _ = factories.get_training_data(args)
+    scst_train_dataloader = factories.get_dataloader(scst_train_data, 2)
+    ref_caps_train = list(scst_train_data.text)
+    cider_train = Cider(PTBTokenizer.tokenize(ref_caps_train))
+
     # Load model
     model = factories.get_model(args, vocab).to(DEVICE)
 
@@ -273,7 +280,7 @@ if __name__ == "__main__":
         model.parameters(), lr=args.learning_rate, weight_decay=0.05
     )
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lambda_lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=5, gamma=0.8)
+    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=args.anneal)
 
     loss_fn = nn.NLLLoss(ignore_index=vocab.stoi["<pad>"])
     use_rl = False
@@ -285,7 +292,7 @@ if __name__ == "__main__":
     for epoch in range(1, args.max_epochs + 1):
         if use_rl:
             loss, reward, reward_baseline = train_epoch_scst(
-                model, train_dataloader, optim, Cider(), vocab
+                model, scst_train_dataloader, optim, cider_train, scst_train_data
             )
             print(
                 f"Epoch {epoch} - train loss: {loss} - reward: {reward} - reward_baseline: {reward_baseline}"
@@ -315,6 +322,7 @@ if __name__ == "__main__":
                 if not use_rl:
                     print("Switching to RL")
                     use_rl = True
+
                     # load best model
                     model.load_state_dict(
                         torch.load(f"saved_models/{args.exp_name}-best.pt")

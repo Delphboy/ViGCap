@@ -1,5 +1,5 @@
 #!/bin/bash
-#$ -l h_rt=24:0:0
+#$ -l h_rt=0:59:0
 #$ -l h_vmem=11G
 #$ -pe smp 8
 #$ -l gpu=1
@@ -20,30 +20,17 @@ module load java/1.8.0_382-openjdk
 # Activate virtual environment
 source .venv/bin/activate
 
-k=$(echo "$k" | bc)
+lr_cleaned=$(echo "$lr" | bc)
+af_cleaned=$(echo "$af" | bc)
 
 # Run!
-python3 train_vig.py --exp_name "Vigcap_${vigType}_${vigSize}_${k}_${gnnType}" \
-                    --dataset "coco" \
-                    --dataset_img_path "/data/PublicDataSets/Coco-2014/" \
-                    --dataset_ann_path "/data/scratch/eey362/datasets/coco/dataset_coco.json" \
-                    --m 40 \
-                    --head 8 \
-                    --workers 4 \
-                    --batch_size 32 \
+python3 train_vig.py --exp_name "Vigcap_flickr8k-${lr}-{$af}" \
+                    --dataset "flickr8k" \
+                    --dataset_img_path "/data/PublicDataSets/flickr/8k/Images" \
+                    --dataset_ann_path "/data/home/eey362/dataset_flickr8k.json" \
                     --max_epochs 20 \
-                    --vig_type ${vigType} \
-                    --vig_size ${vigSize} \
-                    --num_knn ${k} \
-                    --gnn_type ${gnnType} \
-                    --patience -1 \
-
-# python3 train.py --exp_name "vanillaM2" \
-#                 --batch_size 128 \
-#                 --max_epochs 20 \
-#                 --patience -1 \
-#                 --workers 4 \
-#                 --m 40 \
-#                 --head 8 \
-#                 --features_path "/data/scratch/eey362/meshed-data/coco_detections.hdf5" \
-#                 --annotation_folder "/data/home/eey362/ViGCap/data/annotations" \
+                    --batch_size 32 \
+                    --workers 4 \
+                    --seed 42 \
+                    --learning_rate $lr_cleaned \
+                    --anneal $af_cleaned \

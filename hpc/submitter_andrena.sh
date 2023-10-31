@@ -1,24 +1,17 @@
 #!/bin/bash
 
+declare learning_rates=(0.0001 0.001 0.01 0.1 1)
+declare annealing_factors=(0.1 0.5 0.9)
 
-declare -a vigTypes=("default") # "pyramid")
-declare -a vigSizes=("tiny") # "small" "base")
-declare -a kValues=("9" "11" "13" "21")
-declare -a gnnTypes=("mr" "edge" "sage" "gin")
-
-for vigType in "${vigTypes[@]}"
+for lr in "${learning_rates[@]}"
 do
-    for vigSize in "${vigSizes[@]}"
+    for af in "${annealing_factors[@]}"
     do
-        for k in "${kValues[@]}"
-        do
-            for gnnType in "${gnnTypes[@]}"
-            do
-                echo "Submitting job for vigType: $vigType and vigSize: $vigSize with k: $k and gnnType: $gnnType"
-                qsub -v vigType=$vigType,vigSize=$vigSize,k=$k,gnnType=$gnnType -N "Vigcap_${vigType}_${vigSize}_${k}_${gnnType}" train.qsub
-                done
-        done
+        qsub -v lr=$lr,af=$af -N "flickr8k_lr${lr}_af${af}" train.qsub 
     done
 done
+
+sleep 5
+qstat
 
 echo "All jobs submitted"
