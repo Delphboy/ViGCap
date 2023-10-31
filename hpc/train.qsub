@@ -1,5 +1,5 @@
 #!/bin/bash
-#$ -l h_rt=0:59:0
+#$ -l h_rt=24:00:00
 #$ -l h_vmem=11G
 #$ -pe smp 8
 #$ -l gpu=1
@@ -24,11 +24,22 @@ lr_cleaned=$(echo "$lr" | bc)
 af_cleaned=$(echo "$af" | bc)
 
 # Run!
-python3 train_vig.py --exp_name "Vigcap_flickr8k-${lr}-{$af}" \
-                    --dataset "flickr8k" \
-                    --dataset_img_path "/data/PublicDataSets/flickr/8k/Images" \
-                    --dataset_ann_path "/data/home/eey362/dataset_flickr8k.json" \
-                    --max_epochs 20 \
+# python3 train_vig.py --exp_name "Vigcap_flickr8k-${lr}-{$af}" \
+#                     --dataset "flickr8k" \
+#                     --dataset_img_path "/data/PublicDataSets/flickr/8k/Images" \
+#                     --dataset_ann_path "/data/home/eey362/dataset_flickr8k.json" \
+#                     --max_epochs 20 \
+#                     --batch_size 32 \
+#                     --workers 4 \
+#                     --seed 42 \
+#                     --learning_rate $lr_cleaned \
+#                     --anneal $af_cleaned \
+
+python3 train_vig.py --exp_name "Vigcap_coco-${lr}-{$af}" \
+                    --dataset "coco" \
+                    --dataset_img_path "/data/PublicDataSets/Coco-2014/" \
+                    --dataset_ann_path "/data/home/eey362/dataset_coco.json" \
+                    --max_epochs 30 \
                     --batch_size 32 \
                     --workers 4 \
                     --seed 42 \
