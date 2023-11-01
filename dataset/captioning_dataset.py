@@ -98,10 +98,10 @@ class CaptioningDataset(Dataset):
         with open(self.captions_file, "r") as f:
             self.captions_file_data = json.load(f)
 
-        self.data = []
+        self.image_locations = []
         self.captions = []
 
-        transform = transforms.Compose(
+        self.transform = transforms.Compose(
             [
                 transforms.Resize((224, 224)),
                 transforms.ToTensor(),
@@ -121,11 +121,9 @@ class CaptioningDataset(Dataset):
                     image_data.get("filepath", ""),
                     image_data["filename"],
                 )
-                image = Image.open(img_path).convert("RGB")
-                image = transform(image)
 
                 caps = [sentence["raw"] for sentence in image_data["sentences"]]
-                self.data.append(image)
+                self.image_locations.append(img_path)
                 self.captions.append(caps)
 
         self.length = len(self.captions)
@@ -133,7 +131,9 @@ class CaptioningDataset(Dataset):
         self.vocab.build_vocabulary(self.text)
 
     def __getitem__(self, index):
-        image = self.data[index]
+        img_path = self.image_locations[index]
+        image = Image.open(img_path).convert("RGB")
+        image = self.transform(image)
 
         captions = self.captions[index]
         captions = preprocess_captions(captions)

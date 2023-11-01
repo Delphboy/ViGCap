@@ -32,10 +32,11 @@
                 "--dataset_img_path", "/import/gameai-01/eey362/datasets/flickr8k/images",
                 "--dataset_ann_path", "/homes/hps01/ViGCap/data/karpathy_splits/dataset_flickr8k.json",
                 "--exp_name", "debug-flickr8k",
-                "--max_epochs", "20",
+                "--max_epochs", "30",
                 "--batch_size", "8",
                 "--workers", "4",
-                "--seed", "1234"
+                "--seed", "1234",
+                "--learning_rate", "1e-4",
             ],
             "console": "integratedTerminal",
             "justMyCode": true
