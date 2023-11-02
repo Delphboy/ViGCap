@@ -130,6 +130,7 @@ class ImageToFeatures(nn.Module):
 class Vig(nn.Module):
     def __init__(self, args) -> None:
         super(Vig, self).__init__()
+        self.k = args.k
         self.image_to_patch_features = ImageToPatchFeatures(
             hidden_dim=args.patch_feature_size
         )
@@ -145,17 +146,14 @@ class Vig(nn.Module):
         # create patch embeddings
         patch_embeddings = self.image_to_patch_features(image)
         # create adjacency matrix
-        adj_mat = create_knn(patch_embeddings, k=5)
+        adj_mat = create_knn(patch_embeddings, k=self.k)
 
         # pass through GAT
         patch_embeddings = self.gat_1(patch_embeddings, adj_mat)
-        patch_embeddings = F.relu(patch_embeddings)
         patch_embeddings, adj_mat = self.sag_pool_1(patch_embeddings, adj_mat)
-        patch_embeddings = self.gat_2(patch_embeddings, adj_mat)
-        patch_embeddings = F.relu(patch_embeddings)
-        patch_embeddings, adj_mat = self.sag_pool_2(patch_embeddings, adj_mat)
 
-        print()
+        patch_embeddings = self.gat_2(patch_embeddings, adj_mat)
+        patch_embeddings, adj_mat = self.sag_pool_2(patch_embeddings, adj_mat)
 
         return patch_embeddings
 

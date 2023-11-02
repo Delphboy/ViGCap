@@ -208,6 +208,7 @@ if __name__ == "__main__":
     # Model parameters
     parser.add_argument("--m", type=int, default=40, help="Number of memory slots")
     parser.add_argument("--n", type=int, default=3, help="Number of stacked M2 layers")
+    parser.add_argument("--k", type=int, default=5, help="k for kNN graph creation")
     parser.add_argument(
         "--meshed_emb_size",
         type=int,
