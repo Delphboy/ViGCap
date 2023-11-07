@@ -274,13 +274,9 @@ if __name__ == "__main__":
     model = factories.get_model(args, vocab).to(DEVICE)
 
     # Set up optimizer
-
-    # Initial conditions
-    # TODO: Move these to a factory function
     optim = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=0.05
     )
-    # scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lambda_lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=args.anneal)
 
     loss_fn = nn.NLLLoss(ignore_index=vocab.stoi["<pad>"])
@@ -320,15 +316,15 @@ if __name__ == "__main__":
         else:
             patience += 1
             if patience == args.patience:
-                if not use_rl:
-                    print("Switching to RL")
-                    use_rl = True
+                # if not use_rl:
+                #     print("Switching to RL")
+                #     use_rl = True
 
-                    # load best model
-                    model.load_state_dict(
-                        torch.load(f"saved_models/{args.exp_name}-best.pt")
-                    )
-                    optim = torch.optim.Adam(model.parameters(), lr=5e-6)
-                else:
-                    print("Early stopping")
-                    break
+                #     # load best model
+                #     model.load_state_dict(
+                #         torch.load(f"saved_models/{args.exp_name}-best.pt")
+                #     )
+                #     optim = torch.optim.Adam(model.parameters(), lr=5e-6)
+                # else:
+                print("Early stopping")
+                break

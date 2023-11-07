@@ -22,26 +22,48 @@ source .venv/bin/activate
 
 lr_cleaned=$(echo "$lr" | bc)
 af_cleaned=$(echo "$af" | bc)
+k_cleaned=$(echo "$k" | bc)
+meshed_emb_size_cleaned=$(echo "$meshed_emb_size" | bc)
+patch_feature_size_cleaned=$(echo "$patch_feature_size" | bc)
+gnn_emb_size_cleaned=$(echo "$gnn_emb_size" | bc)
+sag_ratio_cleaned=$(echo "$sag_ratio" | bc)
+dropout_cleaned=$(echo "$dropout" | bc)
 
 # Run!
-# python3 train_vig.py --exp_name "Vigcap_flickr8k-${lr}-{$af}" \
+# python3 train_vig.py --exp_name "Vigcap_flickr8k-${lr}-${af}" \
 #                     --dataset "flickr8k" \
 #                     --dataset_img_path "/data/PublicDataSets/flickr/8k/Images" \
 #                     --dataset_ann_path "/data/home/eey362/dataset_flickr8k.json" \
-#                     --max_epochs 20 \
+#                     --max_epochs 30 \
 #                     --batch_size 32 \
 #                     --workers 4 \
 #                     --seed 42 \
 #                     --learning_rate $lr_cleaned \
 #                     --anneal $af_cleaned \
+#                     --k $k_cleaned \
+#                     --meshed_emb_size $meshed_emb_size_cleaned \
+#                     --patch_feature_size $patch_feature_size_cleaned \
+#                     --gnn_emb_size $gnn_emb_size_cleaned \
+#                     --sag_ratio $sag_ratio_cleaned \
+#                     --dropout $dropout_cleaned \
+#                     --patience -1
 
-python3 train_vig.py --exp_name "Vigcap_coco-${lr}-{$af}" \
+
+
+python3 train_vig.py --exp_name "Vigcap_coco-${lr}-${af}" \
                     --dataset "coco" \
                     --dataset_img_path "/data/PublicDataSets/Coco-2014/" \
                     --dataset_ann_path "/data/home/eey362/dataset_coco.json" \
                     --max_epochs 30 \
-                    --batch_size 32 \
+                    --batch_size 64 \
                     --workers 4 \
                     --seed 42 \
                     --learning_rate $lr_cleaned \
                     --anneal $af_cleaned \
+                    --k $k_cleaned \
+                    --meshed_emb_size $meshed_emb_size_cleaned \
+                    --patch_feature_size $patch_feature_size_cleaned \
+                    --gnn_emb_size $gnn_emb_size_cleaned \
+                    --sag_ratio $sag_ratio_cleaned \
+                    --dropout $dropout_cleaned \
+                    --patience -1
