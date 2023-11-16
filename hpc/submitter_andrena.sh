@@ -1,6 +1,6 @@
 #!/bin/bash
 
-declare learning_rates=(0.0001)
+declare learning_rates=(0.000164)
 declare annealing_factors=(0.1) # 0.5 0.9)
 
 declare Ks=(3 5 7) # 10 15 20)

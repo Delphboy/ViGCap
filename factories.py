@@ -44,7 +44,7 @@ def get_dataloader(
     batch_size: int = 32,
     shuffle: bool = True,
 ) -> DataLoader:
-    num_workers = 0
+    num_workers = 4
 
     return DataLoader(
         dataset,

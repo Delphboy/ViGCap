@@ -68,6 +68,7 @@ if __name__ == "__main__":
             files.append(os.path.join(args.dir, file))
 
     for file in files:
+        print(f"Processing: {file}")
         file_lines = read_file_until_rl(file, args.rl)
 
         training_losses = extract_training_loss_values(file_lines)

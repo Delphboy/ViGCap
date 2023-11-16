@@ -17,6 +17,44 @@ from evaluation import Cider, PTBTokenizer
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def plot_charts(train_losses, train_scores, val_losses, val_scores):
+    import matplotlib.pyplot as plt
+
+    train_scores = [s["CIDEr"] * 100 for s in train_scores]
+    val_scores = [s["CIDEr"] * 100 for s in val_scores]
+
+    # Plot training loss
+    plt.plot(train_losses)
+    plt.title("Training Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.savefig("training_loss.png")
+
+    # Plot validation loss
+    plt.clf()
+    plt.plot(val_losses)
+    plt.title("Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.savefig("validation_loss.png")
+
+    # Plot training scores['CIDEr'] vs training loss
+    plt.clf()
+    plt.plot(train_losses, train_scores)
+    plt.title("Training CIDEr vs Training Loss")
+    plt.xlabel("Loss")
+    plt.ylabel("CIDEr")
+    plt.savefig("training_cider_vs_loss.png")
+
+    # Plot validation scores['CIDEr'] vs validation loss
+    plt.clf()
+    plt.plot(val_losses, val_scores)
+    plt.title("Validation CIDEr vs Validation Loss")
+    plt.xlabel("Loss")
+    plt.ylabel("CIDEr")
+    plt.savefig("validation_cider_vs_loss.png")
+
+
 def train_epoch_xe(model, dataloader, loss_fn, optim, scheduler, epoch, vocab):
     model.train()
     running_loss = 0.0
@@ -44,7 +82,7 @@ def train_epoch_xe(model, dataloader, loss_fn, optim, scheduler, epoch, vocab):
             pbar.set_postfix(loss=running_loss / (it + 1))
             pbar.update()
 
-    scheduler.step()
+    # scheduler.step()
 
     loss = running_loss / (it + 1)
     return loss
@@ -141,9 +179,8 @@ def evaluate_epoch_xe(model, dataloader, loss_fn, epoch, vocab):
     return loss
 
 
+@torch.no_grad()
 def evaluate_metrics(model, dataloader, text_field, epoch):
-    import itertools
-
     model.eval()
     gen = {}
     gts = {}
@@ -157,14 +194,17 @@ def evaluate_metrics(model, dataloader, text_field, epoch):
                 out, _ = model.beam_search(
                     images, 20, text_field.vocab.stoi["<eos>"], 5, out_size=1
                 )
-            caps_gen = text_field.decode(out, join_words=False)
-            for i, (gts_i, gen_i) in enumerate(zip(caps_gt, caps_gen)):
-                gen_i = " ".join([k for k, g in itertools.groupby(gen_i)])
-                gen["%d_%d" % (it, i)] = [
-                    gen_i,
-                ]
-                gts["%d_%d" % (it, i)] = gts_i
+            caps_gen = text_field.decode(out, join_words=True)
+            for i in range(len(caps_gt)):
+                gen[f"{it}_{i}"] = [caps_gen[i]]
+                gts[f"{it}_{i}"] = [caption for caption in caps_gt[i]]
             pbar.update()
+
+    print("-" * 10)
+    print(f"Predicted: {gen['0_0']}")
+    print("Ground Truth:")
+    print([f"{g}" for g in gts["0_0"]])
+    print("-" * 10)
 
     gts = evaluation.PTBTokenizer.tokenize(gts)
     gen = evaluation.PTBTokenizer.tokenize(gen)
@@ -212,7 +252,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--meshed_emb_size",
         type=int,
-        default=512,
+        default=2048,
         help="Embedding size for meshed-memory",
     )
     parser.add_argument(
@@ -261,8 +301,10 @@ if __name__ == "__main__":
     train_data, val_data, test_data = factories.get_training_data(args)
     vocab = train_data.vocab
     train_dataloader = factories.get_dataloader(train_data, args.batch_size)
-    val_dataloader = factories.get_dataloader(val_data, args.batch_size)
-    test_dataloader = factories.get_dataloader(test_data, args.batch_size)
+    val_dataloader = factories.get_dataloader(val_data, args.batch_size, shuffle=False)
+    test_dataloader = factories.get_dataloader(
+        test_data, args.batch_size, shuffle=False
+    )
 
     # SCST Things:
     scst_train_data, _, _ = factories.get_training_data(args)
@@ -277,13 +319,16 @@ if __name__ == "__main__":
     optim = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=0.05
     )
-    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=args.anneal)
+    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=300, gamma=args.anneal)
 
     loss_fn = nn.NLLLoss(ignore_index=vocab.stoi["<pad>"])
     use_rl = False
     best_cider = 0.0
     patience = 0
-    losses = []
+    training_losses = []
+    training_scores = []
+    validation_losses = []
+    validation_scores = []
 
     # Training loop
     for epoch in range(1, args.max_epochs + 1):
@@ -299,12 +344,21 @@ if __name__ == "__main__":
                 model, train_dataloader, loss_fn, optim, scheduler, epoch, vocab
             )
             print(f"Epoch {epoch} - train loss: {loss}")
-        losses.append(loss)
+        training_losses.append(loss)
+
+        # Training eval
 
         # Validation
         with torch.no_grad():
+            # scores = evaluate_metrics(model, train_dataloader, train_data, epoch)
+            # training_scores.append(scores)
+            # print(f"Epoch {epoch} - training scores: {scores}")
             val_loss = evaluate_epoch_xe(model, val_dataloader, loss_fn, epoch, vocab)
-        scores = evaluate_metrics(model, val_dataloader, train_data, epoch)
+            validation_losses.append(val_loss)
+            scores = evaluate_metrics(model, val_dataloader, train_data, epoch)
+            validation_scores.append(scores)
+
+        print(f"Epoch {epoch} - validation loss: {val_loss}")
         print(f"Epoch {epoch} - validation scores: {scores}")
 
         cider = scores["CIDEr"]
@@ -328,3 +382,9 @@ if __name__ == "__main__":
                 # else:
                 print("Early stopping")
                 break
+    # plot_charts(
+    #     training_losses,
+    #     training_scores,
+    #     validation_losses,
+    #     validation_scores,
+    # )

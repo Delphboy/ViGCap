@@ -138,8 +138,8 @@ class Vig(nn.Module):
             args.patch_feature_size, args.gnn_emb_size, 1
         )
         self.sag_pool_1 = SagPool(args.gnn_emb_size, args.sag_ratio)
-        self.gat_2 = GraphAttentionNetwork(args.gnn_emb_size, args.gnn_emb_size, 1)
-        self.sag_pool_2 = SagPool(args.gnn_emb_size, args.sag_ratio)
+        self.gat_2 = GraphAttentionNetwork(args.gnn_emb_size, args.meshed_emb_size, 1)
+        self.sag_pool_2 = SagPool(args.meshed_emb_size, args.sag_ratio)
 
     @torch.jit.export
     def forward(self, image: torch.Tensor) -> torch.Tensor:
