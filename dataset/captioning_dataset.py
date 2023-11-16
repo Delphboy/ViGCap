@@ -1,12 +1,30 @@
 import json
 import os
+from collections import Counter
+from itertools import chain
 from typing import List
 
 import numpy as np
 import PIL.Image as Image
 import torch
+import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
+
+
+def preprocess_caption(caption: str) -> str:
+    # Clean sentence list following: https://cs.stanford.edu/people/karpathy/cvpr2015.pdf Section 4
+    caption = caption.lower()
+
+    # Disgard non-alphanumeric characters
+    non_alphanumeric = [chr(i) for i in range(33, 128) if not chr(i).isalnum()]
+
+    for char in non_alphanumeric:
+        caption = caption.replace(char, "")
+    while "  " in caption:
+        caption = caption.replace("  ", " ")
+
+    return caption.strip()
 
 
 def preprocess_captions(captions: List[str]) -> List[str]:
@@ -20,9 +38,9 @@ def preprocess_captions(captions: List[str]) -> List[str]:
     for sentence in captions:
         for char in non_alphanumeric:
             sentence = sentence.replace(char, "")
-        cleaned.append(sentence.strip())
         while "  " in sentence:
             sentence = sentence.replace("  ", " ")
+        cleaned.append(sentence.strip())
     return cleaned
 
 
@@ -36,30 +54,22 @@ class Vocab:
     def __len__(self):
         return len(self.itos)
 
-    def build_vocabulary(self, sentence_list=None):
+    def build_vocabulary(self, sentence_list):
         if os.path.exists(self.talk_file_location):
             with open(self.talk_file_location, "r") as f:
                 self.itos = json.load(f)
                 self.stoi = {v: int(k) for k, v in self.itos.items()}
             return
 
-        sentence_list = preprocess_captions(sentence_list)
-
-        frequencies = {}
+        frequencies = Counter(
+            word for sentence in sentence_list for word in sentence.split(" ")
+        )
         idx = 4  # idx 1, 2, 3, 0 are already taken (PAD, SOS, EOS, UNK)
-        for sentence in sentence_list:
-            for word in sentence.split(" "):  # self.tokenizer_eng(sentence):
-                if word == "":
-                    continue
-                if word not in frequencies:
-                    frequencies[word] = 1
-                else:
-                    frequencies[word] += 1
-
-                if frequencies[word] == self.freq_threshold:
-                    self.stoi[word] = int(idx)
-                    self.itos[idx] = word
-                    idx += 1
+        for word, count in frequencies.items():
+            if count == self.freq_threshold:
+                self.stoi[word] = int(idx)
+                self.itos[idx] = word
+                idx += 1
 
         # write self.itos to a json file
         with open(self.talk_file_location, "w") as f:
@@ -122,7 +132,9 @@ class CaptioningDataset(Dataset):
                     image_data["filename"],
                 )
 
-                caps = [sentence["raw"] for sentence in image_data["sentences"]]
+                caps = [
+                    " ".join(sentence["tokens"]) for sentence in image_data["sentences"]
+                ]
                 self.image_locations.append(img_path)
                 self.captions.append(caps)
 
@@ -130,26 +142,29 @@ class CaptioningDataset(Dataset):
         self.vocab = Vocab(freq_threshold, dataset_name)
         self.vocab.build_vocabulary(self.text)
 
+        # numericalise the first caption of each image and store it in self.seq
+        # add in the <bos> and <eos> tokens
+        self.seq = []
+        for caption_list in self.captions:
+            caption = "<bos> " + caption_list[0] + " <eos>"
+            caption = self.vocab.numericalize(caption)
+            self.seq.append(caption)
+
     def __getitem__(self, index):
         img_path = self.image_locations[index]
         image = Image.open(img_path).convert("RGB")
         image = self.transform(image)
-
+        seq = self.seq[index]
         captions = self.captions[index]
-        captions = preprocess_captions(captions)
 
-        return image, captions
+        return image, seq, captions
 
     def __len__(self):
         return self.length
 
     @property
     def text(self):
-        all_captions = []
-        for caption_list in self.captions:
-            for caption in caption_list:
-                all_captions.append(caption)
-        return all_captions
+        return list(chain.from_iterable(caption_list for caption_list in self.captions))
 
     def decode(self, word_idxs, join_words=True):
         if isinstance(word_idxs, list) and len(word_idxs) == 0:
@@ -178,6 +193,8 @@ class CaptioningDataset(Dataset):
                 word = self.vocab.itos[str(wi.item())]
                 if word == "<eos>":
                     break
+                if word == "<bos>":
+                    continue
                 caption.append(word)
             if join_words:
                 caption = " ".join(caption)
@@ -190,31 +207,26 @@ class Batcher:
         self.vocab = vocab
 
     def __call__(self, batch):
-        def sort(batch):
-            batch.sort(key=lambda x: len(x[1]), reverse=True)
-            return batch
+        # def sort(batch):
+        #     batch.sort(key=lambda x: len(x[1]), reverse=True)
+        #     return batch
 
-        batch = sort(batch)
-        images, captions = zip(*batch)
+        # batch = sort(batch)
+        images, seq, captions = zip(*batch)
 
         images = torch.stack(images, 0)
 
-        # Captions are in the form of a list of lists of strings.
-        # Use the vocab to convert to a list of lists of ints,
-        # adding <SOS> and <EOS> tokens.
-        captions_numericalised = [
-            self.vocab.numericalize(caption[0]) for caption in captions
-        ]
-        captions_numericalised = [
-            [self.vocab.stoi["<bos>"]] + caption + [self.vocab.stoi["<eos>"]]
-            for caption in captions_numericalised
-        ]
-        lengths = [len(caption) for caption in captions_numericalised]
-        max_length = max(lengths)
-        captions_numericalised = [
-            caption + [self.vocab.stoi["<pad>"]] * (max_length - len(caption))
-            for caption in captions_numericalised
-        ]
-        captions_numericalised = torch.LongTensor(captions_numericalised)
+        max_len = max(len(s) for s in seq)
 
-        return images, captions_numericalised, captions
+        # Pad the sequences so that they are all max length
+        # sequences is a list of ints
+        # we want to just add <pad> tokens to the end of the sequence so that they
+        # are all max_len in length
+        seq_padded = []
+        for s in seq:
+            padded = s + [self.vocab.stoi["<pad>"]] * (max_len - len(s))
+            seq_padded.append(padded)
+
+        seq_padded = torch.LongTensor(seq_padded)
+
+        return images, seq_padded, captions
