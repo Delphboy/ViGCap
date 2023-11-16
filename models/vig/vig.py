@@ -144,7 +144,8 @@ class Vig(nn.Module):
     @torch.jit.export
     def forward(self, image: torch.Tensor) -> torch.Tensor:
         # create patch embeddings
-        patch_embeddings = self.image_to_patch_features(image)
+        # patch_embeddings = self.image_to_patch_features(image)
+        patch_embeddings = image
         # create adjacency matrix
         adj_mat = create_knn(patch_embeddings, k=self.k)
 
