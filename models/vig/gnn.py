@@ -43,6 +43,11 @@ class GraphAttentionLayer(nn.Module):
         # Softmax to compute attention weight
         self.softmax = nn.Softmax(dim=2)
         self.dropout = nn.Dropout(dropout)
+        self.init_weights()
+
+    def init_weights(self):
+        nn.init.kaiming_uniform_(self.linear.weight)
+        nn.init.kaiming_uniform_(self.attn.weight)
 
     @torch.jit.export
     def forward(
@@ -216,7 +221,6 @@ class GraphAttentionNetwork(nn.Module):
         # x, adj_mat = self.sag_pool(x, adj_mat)
 
         return x
-
 
 
 class GraphConvolutionalNetwork(nn.Module):

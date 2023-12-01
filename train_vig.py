@@ -17,42 +17,35 @@ from evaluation import Cider, PTBTokenizer
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def plot_charts(train_losses, train_scores, val_losses, val_scores):
+def plot_charts(train_losses, train_scores, val_losses, val_scores, exp_name):
     import matplotlib.pyplot as plt
 
-    train_scores = [s["CIDEr"] * 100 for s in train_scores]
-    val_scores = [s["CIDEr"] * 100 for s in val_scores]
+    # train_scores_cider = [s["CIDEr"] * 100 for s in train_scores]
+    # train_scores_bleu1 = [s["BLEU"][0] * 100 for s in train_scores]
+    # train_scores_bleu4 = [s["BLEU"][3] * 100 for s in train_scores]
 
-    # Plot training loss
-    plt.plot(train_losses)
-    plt.title("Training Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.savefig("training_loss.png")
+    val_scores_cider = [s["CIDEr"] * 100 for s in val_scores]
+    val_scores_bleu1 = [s["BLEU"][0] * 100 for s in val_scores]
+    val_scores_bleu4 = [s["BLEU"][3] * 100 for s in val_scores]
 
-    # Plot validation loss
-    plt.clf()
-    plt.plot(val_losses)
-    plt.title("Validation Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.savefig("validation_loss.png")
+    # Plot losses
+    plt.figure()
+    plt.plot(train_losses, label="Training loss")
+    plt.plot(val_losses, label="Validation loss")
+    plt.legend()
+    plt.savefig(f"{exp_name}-losses.png")
 
-    # Plot training scores['CIDEr'] vs training loss
-    plt.clf()
-    plt.plot(train_losses, train_scores)
-    plt.title("Training CIDEr vs Training Loss")
-    plt.xlabel("Loss")
-    plt.ylabel("CIDEr")
-    plt.savefig("training_cider_vs_loss.png")
+    # Plot scores
+    plt.figure()
+    # plt.plot(train_scores_cider, label="Training CIDEr")
+    # plt.plot(train_scores_bleu1, label="Training BLEU-1")
+    # plt.plot(train_scores_bleu4, label="Training BLEU-4")
 
-    # Plot validation scores['CIDEr'] vs validation loss
-    plt.clf()
-    plt.plot(val_losses, val_scores)
-    plt.title("Validation CIDEr vs Validation Loss")
-    plt.xlabel("Loss")
-    plt.ylabel("CIDEr")
-    plt.savefig("validation_cider_vs_loss.png")
+    plt.plot(val_scores_cider, label="Validation CIDEr")
+    plt.plot(val_scores_bleu1, label="Validation BLEU-1")
+    plt.plot(val_scores_bleu4, label="Validation BLEU-4")
+    plt.legend()
+    plt.savefig(f"{exp_name}-evals.png")
 
 
 def train_epoch_xe(model, dataloader, loss_fn, optim, scheduler, epoch, vocab):
@@ -319,7 +312,7 @@ if __name__ == "__main__":
     optim = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=0.05
     )
-    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=300, gamma=args.anneal)
+    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=args.anneal)
 
     loss_fn = nn.NLLLoss(ignore_index=vocab.stoi["<pad>"])
     use_rl = False
@@ -333,18 +326,17 @@ if __name__ == "__main__":
     # Training loop
     for epoch in range(1, args.max_epochs + 1):
         if use_rl:
-            loss, reward, reward_baseline = train_epoch_scst(
+            training_loss, reward, reward_baseline = train_epoch_scst(
                 model, scst_train_dataloader, optim, cider_train, scst_train_data
             )
             print(
-                f"Epoch {epoch} - train loss: {loss} - reward: {reward} - reward_baseline: {reward_baseline}"
+                f"Epoch {epoch} - train loss: {training_loss} - reward: {reward} - reward_baseline: {reward_baseline}"
             )
         else:
-            loss = train_epoch_xe(
+            training_loss = train_epoch_xe(
                 model, train_dataloader, loss_fn, optim, scheduler, epoch, vocab
             )
-            print(f"Epoch {epoch} - train loss: {loss}")
-        training_losses.append(loss)
+        training_losses.append(training_loss)
 
         # Training eval
 
@@ -358,6 +350,7 @@ if __name__ == "__main__":
             scores = evaluate_metrics(model, val_dataloader, train_data, epoch)
             validation_scores.append(scores)
 
+        print(f"Epoch {epoch} - train loss: {training_loss}")
         print(f"Epoch {epoch} - validation loss: {val_loss}")
         print(f"Epoch {epoch} - validation scores: {scores}")
 
@@ -365,11 +358,11 @@ if __name__ == "__main__":
         if cider > best_cider:
             best_cider = cider
             patience = 0
-
+            print("Saving best model")
             torch.save(model.state_dict(), f"saved_models/{args.exp_name}-best.pt")
         else:
             patience += 1
-            if patience == args.patience:
+            if patience >= args.patience:
                 # if not use_rl:
                 #     print("Switching to RL")
                 #     use_rl = True
@@ -382,9 +375,10 @@ if __name__ == "__main__":
                 # else:
                 print("Early stopping")
                 break
-    # plot_charts(
-    #     training_losses,
-    #     training_scores,
-    #     validation_losses,
-    #     validation_scores,
-    # )
+    plot_charts(
+        training_losses,
+        training_scores,
+        validation_losses,
+        validation_scores,
+        args.exp_name,
+    )

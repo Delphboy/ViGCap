@@ -7,6 +7,76 @@ from models.vig.gnn import GraphAttentionNetwork, GraphConvolutionalNetwork, Sag
 from models.vig.graph_functions import create_knn
 
 
+class ImageToGridFeatures(nn.Module):
+    # create a pretrained ViT model
+    def __init__(self, hidden_dim=192) -> None:
+        super().__init__()
+        self.vit = torchvision.models.vit_b_16(
+            weights=torchvision.models.ViT_B_16_Weights.DEFAULT
+        )  # .conv_proj
+
+        # Remove the last layers of ViT so that we can extract the features of the tokens
+        # Rather than the classification token
+        self.vit = nn.Sequential(*list(self.vit.children())[:-2])
+
+        # Freeze all layers of the ViT model
+        for param in self.vit.parameters():
+            param.requires_grad = False
+
+        self.linear = nn.Linear(768, hidden_dim)
+
+    def forward(self, x):
+        B, C, H, W = x.size()
+        x = self.vit(x)
+        x = x.reshape(B, x.shape[1], -1)
+        x = x.transpose(1, 2)
+        x = self.linear(x)
+        return x
+
+
+class ImageToGridFeaturesUntrained(nn.Module):
+    def patcher(self, x, grid_size=(16, 16)):
+        B, C, H, W = x.size()
+        x = x.unfold(2, grid_size[0], grid_size[0]).unfold(
+            3, grid_size[1], grid_size[1]
+        )
+
+        x = x.reshape(B, C, -1, grid_size[0], grid_size[1])  # [B, 3, 14*14, 16, 16]
+        x = x.permute(0, 2, 1, 3, 4)  # [B, 196, 3, 16, 16]
+        x = x.reshape(-1, C, grid_size[0], grid_size[1])  # [B*196, 3, 16, 16]
+        return x
+
+    def __init__(self, img_size=224, in_dim=3, hidden_dim=192, act="relu"):
+        super().__init__()
+
+        # We want to patch the image using patcher
+        # We then want to flatten the patches and pass them through a linear layer
+        # We then want to prepend a learnable embedding to each patch, similar to BERT's [CLS] token
+        self.pather = self.patcher
+        self.flattener = nn.Flatten()
+        self.linear = nn.Sequential(
+            nn.Linear(in_dim * 16 * 16, hidden_dim),
+            # nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(act),
+        )
+        self.embedding = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.positional_embedding = nn.Parameter(
+            torch.randn(1, 14 * 14 + 1, hidden_dim)
+        )
+
+    def forward(self, x):
+        patches = self.patcher(x)
+        patches = self.flattener(patches)
+        patches = self.linear(patches)
+        patches = patches.reshape(x.shape[0], -1, patches.shape[-1])
+        # prepend the embedding to each patch
+        patches = torch.cat(
+            [self.embedding.repeat(patches.shape[0], 1, 1), patches], dim=1
+        )
+        patches = patches + self.positional_embedding
+        return patches
+
+
 class ImageToPatchFeatures(nn.Module):
     """Image to Visual Word Embedding
     Overlap: https://arxiv.org/pdf/2106.13797.pdf
@@ -30,6 +100,12 @@ class ImageToPatchFeatures(nn.Module):
             nn.Conv2d(hidden_dim, hidden_dim, 3, stride=1, padding=1),
             nn.BatchNorm2d(hidden_dim),
         )
+        self.init_weights()
+
+    def init_weights(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.kaiming_uniform_(p)
 
     @torch.jit.export
     def forward(self, x):
@@ -131,7 +207,7 @@ class Vig(nn.Module):
     def __init__(self, args) -> None:
         super(Vig, self).__init__()
         self.k = args.k
-        self.image_to_patch_features = ImageToPatchFeatures(
+        self.image_to_patch_features = ImageToGridFeatures(
             hidden_dim=args.patch_feature_size
         )
         self.gat_1 = GraphAttentionNetwork(
@@ -144,17 +220,19 @@ class Vig(nn.Module):
     @torch.jit.export
     def forward(self, image: torch.Tensor) -> torch.Tensor:
         # create patch embeddings
-        # patch_embeddings = self.image_to_patch_features(image)
-        patch_embeddings = image
+        patch_embeddings = self.image_to_patch_features(image)
+        # patch_embeddings = image
+
         # create adjacency matrix
-        adj_mat = create_knn(patch_embeddings, k=self.k)
+        # adj_mat = create_knn(patch_embeddings, k=self.k)
+        # adj_mat = create_region_adjacency_graph(patch_embeddings)
 
-        # pass through GAT
-        patch_embeddings = self.gat_1(patch_embeddings, adj_mat)
-        patch_embeddings, adj_mat = self.sag_pool_1(patch_embeddings, adj_mat)
+        # # pass through GAT
+        # patch_embeddings = self.gat_1(patch_embeddings, adj_mat)
+        # patch_embeddings, adj_mat = self.sag_pool_1(patch_embeddings, adj_mat)
 
-        patch_embeddings = self.gat_2(patch_embeddings, adj_mat)
-        patch_embeddings, adj_mat = self.sag_pool_2(patch_embeddings, adj_mat)
+        # patch_embeddings = self.gat_2(patch_embeddings, adj_mat)
+        # patch_embeddings, adj_mat = self.sag_pool_2(patch_embeddings, adj_mat)
 
         return patch_embeddings
 

@@ -19,7 +19,7 @@ class VigCap(CaptioningModel):
         self.dropout = nn.Dropout(args.dropout)
         self.register_state("enc_output", None)
         self.register_state("mask_enc", None)
-        self.init_weights()
+        # self.init_weights()
 
     @property
     def d_model(self):
