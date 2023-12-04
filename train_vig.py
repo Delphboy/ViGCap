@@ -362,7 +362,7 @@ if __name__ == "__main__":
             torch.save(model.state_dict(), f"saved_models/{args.exp_name}-best.pt")
         else:
             patience += 1
-            if patience >= args.patience:
+            if patience == args.patience:
                 # if not use_rl:
                 #     print("Switching to RL")
                 #     use_rl = True
