@@ -7,7 +7,6 @@ from typing import List
 import numpy as np
 import PIL.Image as Image
 import torch
-import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 
@@ -86,8 +85,8 @@ class Vocab:
         ]
 
 
-# Adapted to give BU-TD features
-class CaptioningDataset(Dataset):
+# Adapted to give BU-TD or Superpixel features
+class CaptioningDatasetWithFeatures(Dataset):
     def __init__(
         self,
         root_dir: str,
@@ -129,7 +128,9 @@ class CaptioningDataset(Dataset):
             if image_data["split"] == self.split:
                 img_path = os.path.join(
                     self.root_dir,
-                    f"{image_data['cocoid']}.npz",
+                    f"{image_data['cocoid']}.npz"
+                    if dataset_name == "coco"
+                    else image_data["filename"].split(".")[0] + ".npz",
                 )
 
                 caps = [
@@ -208,8 +209,8 @@ class CaptioningDataset(Dataset):
         return captions
 
 
-# Orginal
-class CaptioningDatasetOriginal(Dataset):
+# Orginal - Gives images and captions
+class CaptioningDatasetWithImages(Dataset):
     def __init__(
         self,
         root_dir: str,
