@@ -1,9 +1,12 @@
-from typing import Optional, Tuple
+from typing import Tuple
 
 from torch.utils.data import DataLoader
 
-from dataset.captioning_dataset import Batcher, Vocab
-from dataset.captioning_dataset import CaptioningDatasetOriginal as CaptioningDataset
+from dataset.captioning_dataset import Batcher
+from dataset.captioning_dataset import (
+    CaptioningDatasetWithFeatures as CaptioningDataset,
+)
+from dataset.captioning_dataset import Vocab
 from models.meshed.captioning_model import CaptioningModel
 from models.meshed.transformer import (
     MemoryAugmentedEncoder,
@@ -71,5 +74,7 @@ def get_model(args: any, vocab: Vocab) -> CaptioningModel:
     )
     model = VigCap(vocab.stoi["<bos>"], encoder, decoder, args)
 
-    print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
+    param = sum(p.numel() for p in model.parameters())
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Model created with {trainable}/{param} parameters")
     return model
