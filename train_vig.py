@@ -81,7 +81,7 @@ def train_epoch_xe(model, dataloader, loss_fn, optim, scheduler, epoch, vocab):
     return loss
 
 
-def train_epoch_scst(model, dataloader, optim, cider, text_field):
+def train_epoch_scst(model, dataloader, optim, cider, epoch, vocab):
     # Training with self-critical
     tokenizer_pool = multiprocessing.Pool()
     running_reward = 0.0
@@ -89,22 +89,23 @@ def train_epoch_scst(model, dataloader, optim, cider, text_field):
     model.train()
     running_loss = 0.0
     seq_len = 20
-    beam_size = 5
+    beam_size = 5  # TODO: make this a parameter with args
 
-    with tqdm(desc="Epoch %d - train" % 1, unit="it", total=len(dataloader)) as pbar:
+    desc = "Epoch %d - train" % epoch
+    with tqdm(desc=desc, unit="it", total=len(dataloader)) as pbar:
         for it, (detections, _, caps_gt) in enumerate(dataloader):
             detections = detections.to(DEVICE)
             outs, log_probs = model.beam_search(
                 detections,
                 seq_len,
-                text_field.vocab.stoi["<eos>"],
+                vocab.vocab.stoi["<eos>"],
                 beam_size,
                 out_size=beam_size,
             )
             optim.zero_grad()
 
             # Rewards
-            caps_gen = text_field.decode(outs.view(-1, seq_len))
+            caps_gen = vocab.decode(outs.view(-1, seq_len))
             caps_gt = list(
                 itertools.chain(
                     *(
@@ -262,6 +263,9 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--max_epochs", type=int, default=20, help="maximum epochs")
     parser.add_argument(
+        "--force_rl_after", type=int, default=-1, help="force RL after (-1 to disable)"
+    )
+    parser.add_argument(
         "--learning_rate", type=float, default=1e-4, help="Learning rate"
     )
     parser.add_argument("--anneal", type=float, default=0.8, help="LR anneal rate")
@@ -327,7 +331,7 @@ if __name__ == "__main__":
     for epoch in range(1, args.max_epochs + 1):
         if use_rl:
             training_loss, reward, reward_baseline = train_epoch_scst(
-                model, scst_train_dataloader, optim, cider_train, scst_train_data
+                model, scst_train_dataloader, optim, cider_train, epoch, scst_train_data
             )
             print(
                 f"Epoch {epoch} - train loss: {training_loss} - reward: {reward} - reward_baseline: {reward_baseline}"
@@ -337,8 +341,6 @@ if __name__ == "__main__":
                 model, train_dataloader, loss_fn, optim, scheduler, epoch, vocab
             )
         training_losses.append(training_loss)
-
-        # Training eval
 
         # Validation
         with torch.no_grad():
@@ -362,19 +364,21 @@ if __name__ == "__main__":
             torch.save(model.state_dict(), f"saved_models/{args.exp_name}-best.pt")
         else:
             patience += 1
-            if patience == args.patience:
-                # if not use_rl:
-                #     print("Switching to RL")
-                #     use_rl = True
 
-                #     # load best model
-                #     model.load_state_dict(
-                #         torch.load(f"saved_models/{args.exp_name}-best.pt")
-                #     )
-                #     optim = torch.optim.Adam(model.parameters(), lr=5e-6)
-                # else:
+        if patience == args.patience or (epoch == args.force_rl_after and not use_rl):
+            if not use_rl and args.force_rl_after > -1:
+                print("Switching to RL")
+                use_rl = True
+
+                # load best model
+                model.load_state_dict(
+                    torch.load(f"saved_models/{args.exp_name}-best.pt")
+                )
+                optim = torch.optim.Adam(model.parameters(), lr=5e-6)
+            else:
                 print("Early stopping")
                 break
+
     plot_charts(
         training_losses,
         training_scores,
