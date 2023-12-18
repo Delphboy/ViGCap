@@ -2,11 +2,10 @@ from typing import Tuple
 
 from torch.utils.data import DataLoader
 
-from dataset.captioning_dataset import Batcher
+from dataset.captioning_dataset import Batcher, Vocab
 from dataset.captioning_dataset import (
     CaptioningDatasetWithFeatures as CaptioningDataset,
 )
-from dataset.captioning_dataset import Vocab
 from models.meshed.captioning_model import CaptioningModel
 from models.meshed.transformer import (
     MemoryAugmentedEncoder,

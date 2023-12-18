@@ -77,8 +77,9 @@ class ImageToGridFeaturesUntrained(nn.Module):
         return patches
 
 
-class ImageToPatchFeatures(nn.Module):
+class VigStem(nn.Module):
     """Image to Visual Word Embedding
+    Original STEM algorithm from VisionGNN
     Overlap: https://arxiv.org/pdf/2106.13797.pdf
     """
 
@@ -207,21 +208,21 @@ class Vig(nn.Module):
     def __init__(self, args) -> None:
         super(Vig, self).__init__()
         self.k = args.k
-        self.image_to_patch_features = ImageToGridFeatures(
-            hidden_dim=args.patch_feature_size
-        )
+        #  self.image_to_patch_features = ImageToGridFeatures(
+        #     hidden_dim=args.patch_feature_size
+        # )
         self.gat_1 = GraphAttentionNetwork(
             args.patch_feature_size, args.gnn_emb_size, 1
         )
-        self.sag_pool_1 = SagPool(args.gnn_emb_size, args.sag_ratio)
-        self.gat_2 = GraphAttentionNetwork(args.gnn_emb_size, args.meshed_emb_size, 1)
-        self.sag_pool_2 = SagPool(args.meshed_emb_size, args.sag_ratio)
+        # self.sag_pool_1 = SagPool(args.gnn_emb_size, args.sag_ratio)
+        # self.gat_2 = GraphAttentionNetwork(args.gnn_emb_size, args.meshed_emb_size, 1)
+        # self.sag_pool_2 = SagPool(args.meshed_emb_size, args.sag_ratio)
 
     @torch.jit.export
     def forward(self, image: torch.Tensor) -> torch.Tensor:
         # create patch embeddings
-        patch_embeddings = self.image_to_patch_features(image)
-        # patch_embeddings = image
+        # patch_embeddings = self.image_to_patch_features(image)
+        patch_embeddings = image
 
         # create adjacency matrix
         # adj_mat = create_knn(patch_embeddings, k=self.k)
@@ -235,19 +236,3 @@ class Vig(nn.Module):
         # patch_embeddings, adj_mat = self.sag_pool_2(patch_embeddings, adj_mat)
 
         return patch_embeddings
-
-
-class VigResnet(nn.Module):
-    def __init__(self, emb_size: int) -> None:
-        super(VigResnet, self).__init__()
-        self.gnn = GraphAttentionNetwork(emb_size, emb_size // 4, 1)
-
-    @torch.jit.export
-    def forward(self, resnet_features: torch.Tensor) -> torch.Tensor:
-        # create adjacency matrix
-        adj_mat = create_knn(resnet_features, k=5)
-
-        # pass through GAT
-        resnet_features = self.gnn(resnet_features, adj_mat)
-
-        return resnet_features
