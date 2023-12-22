@@ -35,7 +35,7 @@ python train_vig.py --dataset ${dataset} \
                     --dataset_ann_path "/jmain02/home/J2AD007/txk47/hxs67-txk47/coco/dataset_coco.json" \
                     --dataset_img_path "/jmain02/home/J2AD007/txk47/hxs67-txk47/superpixel_features/${feature}/" \
                     --feature_limit ${feature_limit} \
-                    --exp_name "${feature}-gat-${dataset}-k_${k}-meshed_${meshed_emb_size_cleaned}-gnn_${gnn_emb_size_cleaned}-sag_${sag_ratio}-dropout_${dropout}" \
+                    --exp_name "${feature}-gat-${dataset}-k_${k}-sag_${sag_ratio}-dropout_${dropout}" \
                     --m 40 \
                     --workers 4 \
                     --max_epochs 30 \

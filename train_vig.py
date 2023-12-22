@@ -4,6 +4,7 @@ import multiprocessing
 import os
 import random
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
@@ -18,9 +19,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # TODO: Move to a utils file
-import matplotlib.pyplot as plt
 def plot_charts(train_losses, val_losses, val_scores, exp_name: str):
-
     val_scores_cider = [s["CIDEr"] * 100 for s in val_scores]
     val_scores_bleu1 = [s["BLEU"][0] * 100 for s in val_scores]
     val_scores_bleu4 = [s["BLEU"][3] * 100 for s in val_scores]
@@ -71,7 +70,6 @@ def train_epoch_xe(model, dataloader, loss_fn, optim, scheduler, epoch, vocab):
             pbar.set_postfix(loss=running_loss / (it + 1))
             pbar.update()
             scheduler.step()
-
 
     loss = running_loss / (it + 1)
     return loss
@@ -268,9 +266,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--force_rl_after", type=int, default=-1, help="force RL after (-1 to disable)"
     )
-    parser.add_argument(
-        "--learning_rate", type=float, default=1, help="Learning rate"
-    )
+    parser.add_argument("--learning_rate", type=float, default=1, help="Learning rate")
     parser.add_argument("--warmup", type=float, default=10000, help="Warmup steps")
     parser.add_argument(
         "--workers", type=int, default=4, help="Number of pytorch dataloader workers"
@@ -284,6 +280,12 @@ if __name__ == "__main__":
         default=5,
         help="Patience for early stopping (-1 to disable)",
     )
+    parser.add_argument(
+        "--checkpoint_location",
+        type=str,
+        default="saved_models",
+        help="Path to checkpoint save directory",
+    )
     parser.add_argument("--dropout", type=float, default=0.3, help="Dropout rate")
 
     args = parser.parse_args()
@@ -294,8 +296,8 @@ if __name__ == "__main__":
         np.random.seed(args.seed)
         random.seed(args.seed)
 
-    if not os.path.exists("saved_models"):
-        os.makedirs("saved_models")
+    if not os.path.exists(args.checkpoint_location):
+        os.makedirs(args.checkpoint_location)
 
     # Load dataset
     train_data, val_data, test_data = factories.get_training_data(args)
@@ -318,7 +320,7 @@ if __name__ == "__main__":
     def lambda_lr(s):
         warm_up = args.warmup
         s += 1
-        return (model.d_model ** -.5) * min(s ** -.5, s * warm_up ** -1.5)
+        return (model.d_model**-0.5) * min(s**-0.5, s * warm_up**-1.5)
 
     # Set up optimizer
     optim = torch.optim.Adam(model.parameters(), lr=1, betas=(0.9, 0.98))
@@ -367,7 +369,9 @@ if __name__ == "__main__":
             best_cider = cider
             patience = 0
             print("Saving best model")
-            torch.save(model.state_dict(), f"saved_models/{args.exp_name}-best.pt")
+            save_dir = os.path.join(args.checkpoint_location, args.exp_name, "-best.pt")
+            torch.save(model.state_dict(), save_dir)
+
         else:
             patience += 1
 
@@ -377,23 +381,26 @@ if __name__ == "__main__":
                 use_rl = True
 
                 # load best model
-                model.load_state_dict(
-                    torch.load(f"saved_models/{args.exp_name}-best.pt")
+                load_dir = os.path.join(
+                    args.checkpoint_location, args.exp_name, "-best.pt"
                 )
+                model.load_state_dict(torch.load(load_dir))
+
                 optim = torch.optim.Adam(model.parameters(), lr=5e-6)
             else:
                 print("Early stopping")
                 break
 
     # Load best model
-    model.load_state_dict(torch.load(f"saved_models/{args.exp_name}-best.pt"))
+    load_dir = os.path.join(args.checkpoint_location, args.exp_name, "-best.pt")
+    model.load_state_dict(torch.load(load_dir))
 
     # Evaluate on test set
-    print("*"*80)
+    print("*" * 80)
     with torch.no_grad():
         scores = evaluate_metrics(model, test_dataloader, test_data, 0)
         print(f"Test scores: {scores}")
-    print("*"*80)
+    print("*" * 80)
 
     plot_charts(
         training_losses,
