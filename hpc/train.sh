@@ -13,31 +13,40 @@ source .venv/bin/activate
 dataset="coco"
 
 # convert nBlocks to int
-lr_cleaned=$(echo "$lr" | bc)
 k_cleaned=$(echo "$k" | bc)
-meshed_emb_size_cleaned=$(echo "$meshed_emb_size" | bc)
-gnn_emb_size_cleaned=$(echo "$gnn_emb_size" | bc)
 sag_ratio_cleaned=$(echo "$sag_ratio" | bc)
 dropout_cleaned=$(echo "$dropout" | bc)
 
-                    # --dataset_img_path "/jmain02/home/J2AD007/txk47/hxs67-txk47/coco" \
+if [ "$feature" == "m25" ]; then
+    feature_limit=16
+elif [ "$feature" == "m50" ]; then
+    feature_limit=36
+elif [ "$feature" == "m75" ]; then
+    feature_limit=55
+elif [ "$feature" == "m100" ]; then
+    feature_limit=77
+else
+    echo "Invalid feature"
+    exit 1
+fi
+
+
 python train_vig.py --dataset ${dataset} \
-                    --dataset_img_path "/jmain02/home/J2AD007/txk47/hxs67-txk47/superpixel_features/m50/" \
                     --dataset_ann_path "/jmain02/home/J2AD007/txk47/hxs67-txk47/coco/dataset_coco.json" \
-                    --feature_limit 50 \
-                    --exp_name "m50-gat-${dataset}-lr_${lr}-k_${k}-meshed_${meshed_emb_size_cleaned}-gnn_${gnn_emb_size_cleaned}-sag_${sag_ratio}-dropout_${dropout}" \
+                    --dataset_img_path "/jmain02/home/J2AD007/txk47/hxs67-txk47/superpixel_features/${feature}/" \
+                    --feature_limit ${feature_limit} \
+                    --exp_name "${feature}-gat-${dataset}-k_${k}-meshed_${meshed_emb_size_cleaned}-gnn_${gnn_emb_size_cleaned}-sag_${sag_ratio}-dropout_${dropout}" \
                     --m 40 \
                     --workers 4 \
-                    --max_epochs 5 \
+                    --max_epochs 30 \
                     --batch_size 32 \
                     --seed 42 \
                     --patience 5 \
                     --force_rl_after -1 \
-                    --learning_rate $lr_cleaned \
                     --k $k_cleaned \
-                    --meshed_emb_size $meshed_emb_size_cleaned \
+                    --meshed_emb_size 512 \
                     --patch_feature_size 2048 \
-                    --gnn_emb_size $gnn_emb_size_cleaned \
+                    --gnn_emb_size 2048 \
                     --sag_ratio $sag_ratio_cleaned \
                     --dropout $dropout_cleaned \
 

@@ -36,7 +36,7 @@ def find_all_scores(dir):
             with open(os.path.join(root, file), "r") as f:
                 lines = f.readlines()
                 for line in reversed(lines):
-                    if "validation scores" in line:
+                    if "Test scores" in line:
                         score_line = line.split("{")[-1]
                         score_line = "{" + score_line
                         score_line = eval(score_line)
