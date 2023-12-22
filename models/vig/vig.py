@@ -208,31 +208,24 @@ class Vig(nn.Module):
     def __init__(self, args) -> None:
         super(Vig, self).__init__()
         self.k = args.k
-        #  self.image_to_patch_features = ImageToGridFeatures(
-        #     hidden_dim=args.patch_feature_size
-        # )
         self.gat_1 = GraphAttentionNetwork(
-            args.patch_feature_size, args.gnn_emb_size, 1
+            args.patch_feature_size, args.gnn_emb_size, dropout=args.dropout
         )
         # self.sag_pool_1 = SagPool(args.gnn_emb_size, args.sag_ratio)
         # self.gat_2 = GraphAttentionNetwork(args.gnn_emb_size, args.meshed_emb_size, 1)
         # self.sag_pool_2 = SagPool(args.meshed_emb_size, args.sag_ratio)
 
     @torch.jit.export
-    def forward(self, image: torch.Tensor) -> torch.Tensor:
-        # create patch embeddings
-        # patch_embeddings = self.image_to_patch_features(image)
-        patch_embeddings = image
-
+    def forward(self, superpixel_features: torch.Tensor) -> torch.Tensor:
         # create adjacency matrix
-        # adj_mat = create_knn(patch_embeddings, k=self.k)
+        adj_mat = create_knn(superpixel_features, k=self.k)
         # adj_mat = create_region_adjacency_graph(patch_embeddings)
 
         # # pass through GAT
-        # patch_embeddings = self.gat_1(patch_embeddings, adj_mat)
+        superpixel_features = self.gat_1(superpixel_features, adj_mat)
         # patch_embeddings, adj_mat = self.sag_pool_1(patch_embeddings, adj_mat)
 
         # patch_embeddings = self.gat_2(patch_embeddings, adj_mat)
         # patch_embeddings, adj_mat = self.sag_pool_2(patch_embeddings, adj_mat)
 
-        return patch_embeddings
+        return superpixel_features

@@ -17,12 +17,9 @@ from evaluation import Cider, PTBTokenizer
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def plot_charts(train_losses, train_scores, val_losses, val_scores, exp_name):
-    import matplotlib.pyplot as plt
-
-    # train_scores_cider = [s["CIDEr"] * 100 for s in train_scores]
-    # train_scores_bleu1 = [s["BLEU"][0] * 100 for s in train_scores]
-    # train_scores_bleu4 = [s["BLEU"][3] * 100 for s in train_scores]
+# TODO: Move to a utils file
+import matplotlib.pyplot as plt
+def plot_charts(train_losses, val_losses, val_scores, exp_name: str):
 
     val_scores_cider = [s["CIDEr"] * 100 for s in val_scores]
     val_scores_bleu1 = [s["BLEU"][0] * 100 for s in val_scores]
@@ -33,23 +30,22 @@ def plot_charts(train_losses, train_scores, val_losses, val_scores, exp_name):
     plt.plot(train_losses, label="Training loss")
     plt.plot(val_losses, label="Validation loss")
     plt.legend()
-    plt.savefig(f"{exp_name}-losses.png")
+    plt.title(f"Losses for {exp_name}")
+    plt.savefig(f"{exp_name.replace('-', ' ').replace('_', ' ')}-losses.png")
 
-    # Plot scores
-    plt.figure()
-    # plt.plot(train_scores_cider, label="Training CIDEr")
-    # plt.plot(train_scores_bleu1, label="Training BLEU-1")
-    # plt.plot(train_scores_bleu4, label="Training BLEU-4")
-
+    # clear figure
+    plt.clf()
     plt.plot(val_scores_cider, label="Validation CIDEr")
     plt.plot(val_scores_bleu1, label="Validation BLEU-1")
     plt.plot(val_scores_bleu4, label="Validation BLEU-4")
     plt.legend()
-    plt.savefig(f"{exp_name}-evals.png")
+    plt.title(f"Scores for {exp_name}")
+    plt.savefig(f"{exp_name.replace('-', ' ').replace('_', ' ')}-evals.png")
 
 
 def train_epoch_xe(model, dataloader, loss_fn, optim, scheduler, epoch, vocab):
     model.train()
+    scheduler.step()
     running_loss = 0.0
 
     desc = "Epoch %d - train" % epoch
@@ -74,8 +70,8 @@ def train_epoch_xe(model, dataloader, loss_fn, optim, scheduler, epoch, vocab):
 
             pbar.set_postfix(loss=running_loss / (it + 1))
             pbar.update()
+            scheduler.step()
 
-    # scheduler.step()
 
     loss = running_loss / (it + 1)
     return loss
@@ -152,7 +148,7 @@ def evaluate_epoch_xe(model, dataloader, loss_fn, epoch, vocab):
     model.eval()
     running_loss = 0.0
 
-    desc = "Epoch %d - evaluate" % epoch
+    desc = "Epoch %d - validation" % epoch
 
     with tqdm(desc=desc, unit="it", total=len(dataloader)) as pbar:
         for it, (detections, captions, _) in enumerate(dataloader):
@@ -183,6 +179,7 @@ def evaluate_metrics(model, dataloader, text_field, epoch):
     ) as pbar:
         for it, (images, enc_caps, caps_gt) in enumerate(iter(dataloader)):
             images = images.to(DEVICE)
+            # ViG encoding is called in vig_cap.step()
 
             with torch.no_grad():
                 out, _ = model.beam_search(
@@ -232,6 +229,12 @@ if __name__ == "__main__":
         help="Path to the dataset annotations",
     )
     parser.add_argument(
+        "--feature_limit",
+        type=int,
+        default=50,
+        help="How many features to use per image (default: 50)",
+    )
+    parser.add_argument(
         "--exp_name",
         type=str,
         default=None,
@@ -266,9 +269,9 @@ if __name__ == "__main__":
         "--force_rl_after", type=int, default=-1, help="force RL after (-1 to disable)"
     )
     parser.add_argument(
-        "--learning_rate", type=float, default=1e-4, help="Learning rate"
+        "--learning_rate", type=float, default=1, help="Learning rate"
     )
-    parser.add_argument("--anneal", type=float, default=0.8, help="LR anneal rate")
+    parser.add_argument("--warmup", type=float, default=10000, help="Warmup steps")
     parser.add_argument(
         "--workers", type=int, default=4, help="Number of pytorch dataloader workers"
     )
@@ -312,11 +315,14 @@ if __name__ == "__main__":
     # Load model
     model = factories.get_model(args, vocab).to(DEVICE)
 
+    def lambda_lr(s):
+        warm_up = args.warmup
+        s += 1
+        return (model.d_model ** -.5) * min(s ** -.5, s * warm_up ** -1.5)
+
     # Set up optimizer
-    optim = torch.optim.AdamW(
-        model.parameters(), lr=args.learning_rate, weight_decay=0.05
-    )
-    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=3, gamma=args.anneal)
+    optim = torch.optim.Adam(model.parameters(), lr=1, betas=(0.9, 0.98))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lambda_lr)
 
     loss_fn = nn.NLLLoss(ignore_index=vocab.stoi["<pad>"])
     use_rl = False
@@ -379,9 +385,18 @@ if __name__ == "__main__":
                 print("Early stopping")
                 break
 
+    # Load best model
+    model.load_state_dict(torch.load(f"saved_models/{args.exp_name}-best.pt"))
+
+    # Evaluate on test set
+    print("*"*80)
+    with torch.no_grad():
+        scores = evaluate_metrics(model, test_dataloader, test_data, 0)
+        print(f"Test scores: {scores}")
+    print("*"*80)
+
     plot_charts(
         training_losses,
-        training_scores,
         validation_losses,
         validation_scores,
         args.exp_name,

@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,7 +13,7 @@ class GraphAttentionLayer(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        n_heads: int,  # TODO: Take in the --n_heads argument
+        n_heads: Optional[int]=8, # Use the same number of heads as M2
         is_concat: bool = True,
         dropout: float = 0.6,
         leaky_relu_negative_slope: float = 0.2,
@@ -31,7 +32,7 @@ class GraphAttentionLayer(nn.Module):
 
         # Calculate the number of dimensions per head
         if is_concat:
-            assert out_features % n_heads == 0
+            assert out_features % n_heads == 0, "out_features must be divisible by n_heads"
             self.n_hidden = out_features // n_heads
         else:
             self.n_hidden = out_features
@@ -92,12 +93,6 @@ class GraphAttentionLayer(nn.Module):
 
         e = self.activation(self.attn(g_concat))
         e = e.squeeze(-1)
-
-        assert adj_mat.shape[1] == 1 or adj_mat.shape[1] == num_nodes
-        assert adj_mat.shape[2] == 1 or adj_mat.shape[2] == num_nodes, print(
-            adj_mat.shape, num_nodes
-        )
-        assert adj_mat.shape[3] == 1 or adj_mat.shape[3] == self.n_heads
 
         e = e.masked_fill(adj_mat == 0, -1000)
         a = self.softmax(e)
@@ -177,15 +172,13 @@ class GraphAttentionNetwork(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        n_heads: int,
+        n_heads: int = 8, # Use the same number of heads as M2
         is_concat: bool = True,
         dropout: float = 0.6,
         leaky_relu_negative_slope: float = 0.1,
-        opt=None,
     ) -> None:
         super(GraphAttentionNetwork, self).__init__()
-        pool_ratio = 0.5
-        self.layer_1 = GraphAttentionLayer(
+        self.layer = GraphAttentionLayer(
             in_features,
             out_features,
             n_heads,
@@ -193,19 +186,7 @@ class GraphAttentionNetwork(nn.Module):
             dropout,
             leaky_relu_negative_slope,
         )
-        self.activation_1 = nn.LeakyReLU(leaky_relu_negative_slope)
-
-        # self.layer_2 = GraphAttentionLayer(
-        #     out_features,
-        #     out_features,
-        #     n_heads,
-        #     is_concat,
-        #     dropout,
-        #     leaky_relu_negative_slope,
-        # )
-        # self.activation_2 = nn.LeakyReLU(leaky_relu_negative_slope)
-
-        # self.sag_pool = SagPool(out_features * n_heads, pool_ratio)
+        self.activation_1 = nn.ReLU()
 
     @torch.jit.export
     def forward(
@@ -213,13 +194,8 @@ class GraphAttentionNetwork(nn.Module):
         x: torch.Tensor,
         adj_mat: torch.Tensor,
     ) -> torch.Tensor:
-        x = self.layer_1(x, adj_mat)
+        x = self.layer(x, adj_mat)
         x = self.activation_1(x)
-        # x = self.layer_2(x, adj_mat)
-        # x = self.activation_2(x)
-
-        # x, adj_mat = self.sag_pool(x, adj_mat)
-
         return x
 
 
@@ -228,7 +204,6 @@ class GraphConvolutionalNetwork(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        opt=None,
     ) -> None:
         super(GraphConvolutionalNetwork, self).__init__()
         self.layer_1 = GraphConvolutionalLayer(in_features, out_features)

@@ -94,6 +94,7 @@ class CaptioningDatasetWithFeatures(Dataset):
         dataset_name: str = "coco",
         freq_threshold: int = 5,
         split: str = "train",
+        feature_limit: int = 50,
     ):
         self.root_dir = root_dir
         self.captions_file = captions_file
@@ -104,6 +105,7 @@ class CaptioningDatasetWithFeatures(Dataset):
             "test",
         ], f"Split must be train, val or test. Received: {split}"
         self.split = split
+        self.feature_limit = feature_limit
 
         with open(self.captions_file, "r") as f:
             self.captions_file_data = json.load(f)
@@ -143,28 +145,23 @@ class CaptioningDatasetWithFeatures(Dataset):
         self.vocab = Vocab(freq_threshold, dataset_name)
         self.vocab.build_vocabulary(self.text)
 
-        # numericalise the first caption of each image and store it in self.seq
-        # add in the <bos> and <eos> tokens
-        self.seq = []
-        for caption_list in self.captions:
-            caption = "<bos> " + caption_list[0] + " <eos>"
-            caption = self.vocab.numericalize(caption)
-            self.seq.append(caption)
-
     def __getitem__(self, index):
         img_path = self.image_locations[index]
         image = np.load(img_path)["feat"]
         image = torch.from_numpy(image)
 
-        # if image.shape[0] < 50 then we need to pad it with zeros
-        if image.shape[0] < 50:
-            pad = torch.zeros((50 - image.shape[0], 2048))
+        # if image.shape[0] < self.feature_limit then we need to pad it with zeros
+        if image.shape[0] < self.feature_limit:
+            pad = torch.zeros((self.feature_limit - image.shape[0], 2048))
             image = torch.cat((image, pad), 0)
 
-        seq = self.seq[index]
         captions = self.captions[index]
 
-        return image[:50], seq, captions
+        # randomly select a caption from the list of captions
+        caption = "<bos> " + np.random.choice(captions) + " <eos>"
+        seq = self.vocab.numericalize(caption)
+
+        return image[:self.feature_limit], seq, captions
 
     def __len__(self):
         return self.length
