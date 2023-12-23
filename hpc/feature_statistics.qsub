@@ -1,0 +1,12 @@
+#!/bin/bash
+#$ -pe smp 4
+#$ -l h_vmem=4G
+#$ -l h_rt=12:0:0
+#$ -l highmem
+#$ -j y
+#$ -wd /data/home/eey362/ViGCap
+
+
+module load python/3.8.5
+
+python3 utils/find_max.py
