@@ -46,9 +46,8 @@ def get_dataloader(
     dataset: CaptioningDataset,
     batch_size: int = 32,
     shuffle: bool = True,
+    num_workers: int = 4,
 ) -> DataLoader:
-    num_workers = 4
-
     return DataLoader(
         dataset,
         batch_size=batch_size,

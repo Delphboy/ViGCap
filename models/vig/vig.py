@@ -212,7 +212,9 @@ class Vig(nn.Module):
             args.patch_feature_size, args.gnn_emb_size, dropout=args.dropout
         )
         # self.sag_pool_1 = SagPool(args.gnn_emb_size, args.sag_ratio)
-        # self.gat_2 = GraphAttentionNetwork(args.gnn_emb_size, args.meshed_emb_size, 1)
+        self.gat_2 = GraphAttentionNetwork(
+            args.gnn_emb_size, args.meshed_emb_size, dropout=args.dropout
+        )
         # self.sag_pool_2 = SagPool(args.meshed_emb_size, args.sag_ratio)
 
     @torch.jit.export
@@ -223,9 +225,9 @@ class Vig(nn.Module):
 
         # # pass through GAT
         superpixel_features = self.gat_1(superpixel_features, adj_mat)
-        # patch_embeddings, adj_mat = self.sag_pool_1(patch_embeddings, adj_mat)
+        # superpixel_features, adj_mat = self.sag_pool_1(superpixel_features, adj_mat)
 
-        # patch_embeddings = self.gat_2(patch_embeddings, adj_mat)
-        # patch_embeddings, adj_mat = self.sag_pool_2(patch_embeddings, adj_mat)
+        superpixel_features = self.gat_2(superpixel_features, adj_mat)
+        # superpixel_features, adj_mat = self.sag_pool_2(superpixel_features, adj_mat)
 
         return superpixel_features

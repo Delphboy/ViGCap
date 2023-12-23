@@ -35,7 +35,7 @@ class VigCap(CaptioningModel):
     def forward(self, images, seq, *args):
         images = self.vig(images)
         images = self.dropout(images)
-        images = self.linear(images)
+        # images = self.linear(images)
 
         enc_output, mask_enc = self.encoder(images)
         dec_output = self.decoder(seq, enc_output, mask_enc)
@@ -51,7 +51,7 @@ class VigCap(CaptioningModel):
         elif mode == "feedback":
             if t == 0:
                 visual = self.vig(visual)
-                visual = self.linear(visual)
+                # visual = self.linear(visual)
                 self.enc_output, self.mask_enc = self.encoder(visual)
                 if isinstance(visual, torch.Tensor):
                     it = visual.data.new_full((visual.shape[0], 1), self.bos_idx).long()
